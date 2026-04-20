@@ -1,0 +1,48 @@
+name: Deploy Experiment 1
+
+on:
+  push:
+    branches: [main]
+    paths: ['derisking-experiments/experiment-1/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: derisking-experiments/experiment-1/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: derisking-experiments/experiment-1
+
+      - name: Build
+        run: npm run build
+        working-directory: derisking-experiments/experiment-1
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: derisking-experiments/experiment-1/dist
+
+      - uses: actions/deploy-pages@v4
+        id: deploy

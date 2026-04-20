@@ -6,6 +6,9 @@ import { useViewportStore } from '@/stores/viewportStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { CanvasProjection } from '@/canvas/projection/CanvasProjection';
 import { loadAllSprites } from '@/canvas/projection/spriteLoader';
+import SelfTestPanel from '@/components/SelfTestPanel.vue';
+
+const APP_START = performance.now();
 
 const containerRef = ref<HTMLDivElement | null>(null);
 
@@ -27,6 +30,7 @@ let lastPointerY = 0;
 
 // Keyboard state
 const spaceDown = ref(false);
+const ttiMs = ref<number | null>(null);
 
 // Mutation counter — exposed to Playwright via window.__flora__ for M3 verification
 let mutationCount = 0;
@@ -106,6 +110,7 @@ onMounted(async () => {
 
   // Initial render
   doReconcile();
+  ttiMs.value = performance.now() - APP_START;
 
   // Dev/test hooks — Playwright reads these to verify measurements without human eyes.
   if (import.meta.env.DEV) {
@@ -253,29 +258,33 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div style="position: relative; width: 100vw; height: 100vh;">
+  <div role="main" style="position: relative; width: 100vw; height: 100vh;">
+    <SelfTestPanel :tti-ms="ttiMs" :get-konva-node-count="() => plantLayer?.getChildren().length ?? 0" />
     <div
       ref="containerRef"
+      data-testid="canvas-container"
       style="width: 100%; height: 100%;"
       :style="{ cursor: spaceDown ? 'grab' : 'default' }"
     />
-    <div
+    <aside
+      role="complementary"
+      aria-label="Canvas stats"
       style="
         position: absolute; top: 12px; left: 12px;
         background: rgba(0,0,0,0.6); color: #fff;
         padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 12px;
       "
     >
-      <div>Plants: {{ docStore.plants.size }}</div>
-      <div>Zoom: {{ (viewportStore.zoom * 100).toFixed(0) }}%</div>
-      <div>Selected: {{ selectionStore.selectedPlantId ?? 'none' }}</div>
-      <div>Undo stack: {{ docStore.undoStack.length }}/10</div>
+      <div data-testid="stat-plants">Plants: {{ docStore.plants.size }}</div>
+      <div data-testid="stat-zoom">Zoom: {{ (viewportStore.zoom * 100).toFixed(0) }}%</div>
+      <div data-testid="stat-selected">Selected: {{ selectionStore.selectedPlantId ?? 'none' }}</div>
+      <div data-testid="stat-undo-stack">Undo stack: {{ docStore.undoStack.length }}/10</div>
       <div style="margin-top: 4px; color: #aaa;">
         Scroll: zoom &nbsp; Space+drag: pan &nbsp; Cmd+Z: undo
       </div>
-      <div style="color: #88cc88; margin-top: 4px;">
+      <div data-testid="site-label" style="color: #88cc88; margin-top: 4px;">
         Background: 500 Alligator Dr, Venice FL
       </div>
-    </div>
+    </aside>
   </div>
 </template>
