@@ -12,33 +12,51 @@ interface Result {
   label: string;
   status: 'pending' | 'running' | 'pass' | 'fail' | 'manual';
   measured: string;
+  numericValue: number | null;
+  numericMax: number | null;
   threshold: string;
+  unit: string;
 }
 
 const docStore = useDocStore();
 const open = ref(false);
 const running = ref(false);
-const m2Pass = ref(false);
 const m2Checked = ref(false);
+const m2Pass = ref(false);
+const EPSILON = 0.001;
 
 const results = ref<Result[]>([
-  { id: 'M4', label: 'Time-to-interactive', status: 'pending', measured: '—', threshold: '< 2000ms' },
-  { id: 'M1', label: 'Sustained FPS (3s)', status: 'pending', measured: '—', threshold: '≥ 55fps' },
-  { id: 'M3', label: 'Single-commit correctness', status: 'pending', measured: '—', threshold: '= 1 mutation' },
-  { id: 'M6', label: 'Undo roundtrip (5 drags)', status: 'pending', measured: '—', threshold: '< 0.001in drift' },
-  { id: 'M5', label: 'Memory stability', status: 'pending', measured: '—', threshold: '< 10MB growth' },
-  { id: 'M7', label: 'Consistency assertions', status: 'pending', measured: '—', threshold: '0 failures' },
-  { id: 'M2', label: 'Drag feel — drag a plant 5s, then check if smooth', status: 'manual', measured: '', threshold: 'no visible lag' },
+  { id: 'M4', label: 'Time-to-interactive', status: 'pending', measured: '—', numericValue: null, numericMax: 2500, threshold: '< 2000ms', unit: 'ms' },
+  { id: 'M1', label: 'Sustained FPS (3s sample)', status: 'pending', measured: '—', numericValue: null, numericMax: 120, threshold: '≥ 55fps', unit: 'fps' },
+  { id: 'M3', label: 'Single-commit correctness', status: 'pending', measured: '—', numericValue: null, numericMax: null, threshold: '= 1 mutation', unit: '' },
+  { id: 'M6', label: 'Undo roundtrip (5 drags)', status: 'pending', measured: '—', numericValue: null, numericMax: null, threshold: '< 0.001in drift', unit: '' },
+  { id: 'M5', label: 'Memory stability', status: 'pending', measured: '—', numericValue: null, numericMax: 20, threshold: '< 10MB growth', unit: 'MB' },
+  { id: 'M7', label: 'Consistency assertions', status: 'pending', measured: '—', numericValue: null, numericMax: null, threshold: '0 failures', unit: '' },
 ]);
 
-const EPSILON = 0.001;
+const machine = {
+  userAgent: navigator.userAgent,
+  cores: navigator.hardwareConcurrency,
+  memoryGB: (navigator as any).deviceMemory ?? 'unknown',
+  screenRes: `${screen.width}×${screen.height}`,
+};
+
+// Readable short machine label for display
+const machineLabel = computed(() => {
+  const ua = machine.userAgent;
+  if (ua.includes('Mac OS X')) {
+    const ver = ua.match(/Mac OS X [\d_]+/)?.[0]?.replace(/_/g, '.') ?? 'Mac';
+    return `${ver} · ${machine.cores} cores · ${machine.memoryGB}GB`;
+  }
+  return `${machine.cores} cores · ${machine.memoryGB}GB`;
+});
 
 function set(id: string, patch: Partial<Result>) {
   const r = results.value.find(r => r.id === id)!;
   Object.assign(r, patch);
 }
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms: number) { return new Promise<void>(r => setTimeout(r, ms)); }
 
 async function measureFPS(): Promise<number> {
   return new Promise(resolve => {
@@ -55,38 +73,36 @@ async function measureFPS(): Promise<number> {
 async function runAll() {
   if (running.value) return;
   running.value = true;
-  for (const r of results.value) {
-    if (r.id !== 'M2') Object.assign(r, { status: 'pending', measured: '—' });
-  }
+  for (const r of results.value) Object.assign(r, { status: 'pending', measured: '—', numericValue: null });
 
-  // M4: Time-to-interactive
+  // M4
   set('M4', { status: 'running' });
   await sleep(30);
   const tti = props.ttiMs;
   if (tti === null) {
-    set('M4', { status: 'fail', measured: 'not captured' });
+    set('M4', { status: 'fail', measured: 'not captured', numericValue: null });
   } else {
-    set('M4', { status: tti < 2000 ? 'pass' : 'fail', measured: `${tti.toFixed(0)}ms` });
+    set('M4', { status: tti < 2000 ? 'pass' : 'fail', measured: `${tti.toFixed(0)}ms`, numericValue: tti });
   }
 
-  // M1: FPS
+  // M1
   set('M1', { status: 'running' });
   const fps = await measureFPS();
-  set('M1', { status: fps >= 55 ? 'pass' : 'fail', measured: `${fps.toFixed(1)}fps` });
+  set('M1', { status: fps >= 55 ? 'pass' : 'fail', measured: `${fps.toFixed(1)} fps`, numericValue: fps });
 
-  // M3: Single-commit correctness
+  // M3
   set('M3', { status: 'running' });
   const ids = [...docStore.plants.keys()];
   let mutCount = 0;
   const unsub = docStore.$subscribe(() => { mutCount++; });
-  const plant = docStore.plants.get(ids[0])!;
-  docStore.updatePlantPosition(ids[0], { x: plant.position.x + 1.0, y: plant.position.y + 0.5 });
+  const p0 = docStore.plants.get(ids[0])!;
+  docStore.updatePlantPosition(ids[0], { x: p0.position.x + 1.0, y: p0.position.y + 0.5 });
   await sleep(50);
   unsub();
   docStore.undo();
-  set('M3', { status: mutCount === 1 ? 'pass' : 'fail', measured: `${mutCount} mutation${mutCount !== 1 ? 's' : ''}` });
+  set('M3', { status: mutCount === 1 ? 'pass' : 'fail', measured: `${mutCount} mutation${mutCount !== 1 ? 's' : ''}`, numericValue: mutCount });
 
-  // M6: Undo roundtrip
+  // M6
   set('M6', { status: 'running' });
   const fiveIds = ids.slice(0, 5);
   const originals = fiveIds.map(id => ({ ...docStore.plants.get(id)!.position }));
@@ -100,9 +116,9 @@ async function runAll() {
     const pos = docStore.plants.get(id)!.position;
     return Math.abs(pos.x - originals[i].x) < EPSILON && Math.abs(pos.y - originals[i].y) < EPSILON;
   });
-  set('M6', { status: posOk ? 'pass' : 'fail', measured: posOk ? 'all restored' : 'position drift' });
+  set('M6', { status: posOk ? 'pass' : 'fail', measured: posOk ? 'all restored' : 'drift detected' });
 
-  // M5: Memory
+  // M5
   set('M5', { status: 'running' });
   const heapBefore = (performance as any).memory?.usedJSHeapSize ?? 0;
   for (let i = 0; i < 20; i++) {
@@ -115,17 +131,16 @@ async function runAll() {
   }
   const heapAfter = (performance as any).memory?.usedJSHeapSize ?? 0;
   if (heapBefore === 0) {
-    set('M5', { status: 'pass', measured: 'N/A — run Chrome with --enable-precise-memory-info' });
+    set('M5', { status: 'pass', measured: 'N/A (Chrome --enable-precise-memory-info needed)', numericValue: null });
   } else {
     const mb = (heapAfter - heapBefore) / 1_048_576;
-    set('M5', { status: mb < 10 ? 'pass' : 'fail', measured: `+${mb.toFixed(2)}MB` });
+    set('M5', { status: mb < 10 ? 'pass' : 'fail', measured: `+${mb.toFixed(2)} MB`, numericValue: mb });
   }
 
-  // M7: Consistency assertions (intercept console.assert)
+  // M7
   set('M7', { status: 'running' });
   const failures: string[] = [];
   const origAssert = console.assert.bind(console);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (console as any).assert = (condition: boolean, ...args: unknown[]) => {
     if (!condition) failures.push(args.map(String).join(' '));
     origAssert(condition, ...args);
@@ -139,123 +154,198 @@ async function runAll() {
     await sleep(30);
   }
   (console as any).assert = origAssert;
-  set('M7', { status: failures.length === 0 ? 'pass' : 'fail', measured: `${failures.length} failure${failures.length !== 1 ? 's' : ''}` });
+  set('M7', { status: failures.length === 0 ? 'pass' : 'fail', measured: `${failures.length} failure${failures.length !== 1 ? 's' : ''}`, numericValue: failures.length });
 
   running.value = false;
+  saveToLocalStorage();
 }
 
-const autoResults = computed(() => results.value.filter(r => r.id !== 'M2'));
-const allAutoPass = computed(() => autoResults.value.every(r => r.status === 'pass'));
-const verdict = computed(() => {
-  if (!allAutoPass.value) return null;
-  if (!m2Checked.value) return null;
-  return m2Pass.value ? 'go' : 'nogo';
-});
+// ── Bar gauge helpers ────────────────────────────────────────────────────────
 
-const copyText = computed(() => {
-  const header = `Experiment 1 Self-Test — ${new Date().toISOString()}`;
-  const lines = results.value.map(r => {
-    if (r.id === 'M2') return `M2: ${m2Checked.value ? (m2Pass.value ? 'PASS' : 'FAIL') : 'PENDING'} — drag feel`;
-    return `${r.id}: ${r.status.toUpperCase()} — ${r.measured} (threshold: ${r.threshold})`;
-  });
-  return [header, ...lines].join('\n');
-});
+function barPercent(r: Result): number {
+  if (r.numericValue === null || r.numericMax === null) return 0;
+  // For FPS: higher is better. For TTI/memory: lower is better — invert.
+  if (r.id === 'M1') return Math.min(100, (r.numericValue / r.numericMax) * 100);
+  return Math.min(100, (r.numericValue / r.numericMax) * 100);
+}
+
+function thresholdPercent(r: Result): number {
+  if (r.numericMax === null) return 0;
+  if (r.id === 'M1') return (55 / r.numericMax) * 100;
+  if (r.id === 'M4') return (2000 / r.numericMax) * 100;
+  if (r.id === 'M5') return (10 / r.numericMax) * 100;
+  return 0;
+}
+
+function hasBar(r: Result): boolean {
+  return r.numericMax !== null && r.numericValue !== null;
+}
 
 function statusColor(status: string): string {
-  if (status === 'pass') return '#88cc88';
-  if (status === 'fail') return '#cc5555';
-  if (status === 'running') return '#cccc55';
+  if (status === 'pass') return '#5cb85c';
+  if (status === 'fail') return '#d9534f';
+  if (status === 'running') return '#f0ad4e';
   return '#666';
 }
 
-function copyToClipboard() {
-  navigator.clipboard?.writeText(copyText.value);
+// ── Persistence & export ─────────────────────────────────────────────────────
+
+interface StoredRun {
+  date: string;
+  machine: typeof machine;
+  results: { id: string; status: string; measured: string }[];
+  m2Pass: boolean | null;
 }
 
-function statusGlyph(id: string, status: string): string {
-  if (id === 'M2') return '';
-  if (status === 'pass') return '✓';
-  if (status === 'fail') return '✗';
-  if (status === 'running') return '…';
-  return '·';
+function saveToLocalStorage() {
+  const run: StoredRun = {
+    date: new Date().toISOString(),
+    machine,
+    results: results.value.map(r => ({ id: r.id, status: r.status, measured: r.measured })),
+    m2Pass: m2Checked.value ? m2Pass.value : null,
+  };
+  const existing: StoredRun[] = JSON.parse(localStorage.getItem('exp1-results') ?? '[]');
+  existing.unshift(run);
+  localStorage.setItem('exp1-results', JSON.stringify(existing.slice(0, 5)));
 }
+
+function exportJSON() {
+  const data = {
+    experiment: 'experiment-1',
+    schemaVersion: '1.0',
+    date: new Date().toISOString(),
+    machine,
+    results: Object.fromEntries(
+      results.value.map(r => [r.id, {
+        status: r.status,
+        measured: r.measured,
+        threshold: r.threshold,
+        numericValue: r.numericValue,
+        unit: r.unit,
+      }])
+    ),
+    m2: { status: m2Checked.value ? (m2Pass.value ? 'pass' : 'fail') : 'pending', measured: 'manual' },
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `exp1-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const allAutoPass = computed(() => results.value.every(r => r.status === 'pass'));
+const anyRan = computed(() => results.value.some(r => r.status === 'pass' || r.status === 'fail'));
+const verdict = computed(() => {
+  if (!allAutoPass.value || !m2Checked.value) return null;
+  return m2Pass.value ? 'go' : 'nogo';
+});
 </script>
 
 <template>
   <div style="position: absolute; top: 12px; right: 12px; z-index: 100; font-family: monospace; font-size: 12px;">
     <button
       @click="open = !open"
-      style="background: #1a2a1a; color: #88cc88; border: 1px solid #3a6a3a; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-family: monospace; font-size: 12px;"
+      style="background: #1a2e1a; color: #6dbf6d; border: 1px solid #3a6a3a; padding: 7px 16px; cursor: pointer; border-radius: 5px; font-family: monospace; font-size: 12px; letter-spacing: 0.03em;"
     >
       Self-test {{ open ? '▲' : '▼' }}
     </button>
 
-    <div
-      v-if="open"
-      style="margin-top: 6px; background: rgba(10,16,10,0.93); color: #ddd; padding: 14px 16px; border-radius: 4px; min-width: 400px; border: 1px solid #3a5a3a;"
-    >
-      <div
-        v-for="r in results"
-        :key="r.id"
-        style="display: flex; gap: 8px; margin-bottom: 5px; align-items: baseline;"
-      >
-        <span style="width: 28px; font-weight: bold; color: #aaa;">{{ r.id }}</span>
-        <span :style="{ width: '14px', color: statusColor(r.status) }">{{ statusGlyph(r.id, r.status) }}</span>
-        <span style="flex: 1;">{{ r.label }}</span>
-        <span :style="{ color: statusColor(r.status) }">{{ r.measured }}</span>
+    <div v-if="open" style="margin-top: 8px; background: #0d150d; color: #ccc; padding: 16px; border-radius: 6px; width: 420px; border: 1px solid #2a4a2a; box-shadow: 0 4px 20px rgba(0,0,0,0.6);">
+
+      <!-- Header -->
+      <div style="font-size: 11px; color: #5a8a5a; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #1a3a1a;">
+        <div style="font-size: 13px; color: #8dc88d; font-weight: bold; margin-bottom: 3px;">Experiment 1 — Self-Test</div>
+        <div>{{ machineLabel }}</div>
       </div>
 
-      <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3a2a;">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #bbb;">
-          <input
-            type="checkbox"
-            v-model="m2Checked"
-            @change="() => { if (!m2Checked) m2Pass = false; }"
-          />
-          M2 drag tested
-          <input
-            v-if="m2Checked"
-            type="checkbox"
-            v-model="m2Pass"
-            style="margin-left: 8px;"
-          />
-          <span v-if="m2Checked" :style="{ color: m2Pass ? '#88cc88' : '#cc5555' }">
-            {{ m2Pass ? 'PASS — felt smooth' : 'FAIL — lag detected' }}
+      <!-- Results rows -->
+      <div v-for="r in results" :key="r.id" style="margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 3px;">
+          <span style="width: 24px; font-weight: bold; color: #6a8a6a; font-size: 11px;">{{ r.id }}</span>
+          <span :style="{ width: '16px', textAlign: 'center', color: statusColor(r.status), fontWeight: 'bold' }">
+            {{ r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : r.status === 'running' ? '…' : '·' }}
+          </span>
+          <span style="flex: 1; color: #bbb;">{{ r.label }}</span>
+          <span :style="{ color: statusColor(r.status), minWidth: '80px', textAlign: 'right', fontSize: '11px' }">
+            {{ r.measured }}
+          </span>
+        </div>
+        <!-- Bar gauge for numeric metrics -->
+        <div v-if="hasBar(r)" style="margin-left: 48px; height: 5px; background: #1a2a1a; border-radius: 3px; position: relative; overflow: visible;">
+          <div :style="{
+            width: `${barPercent(r)}%`,
+            height: '100%',
+            background: r.status === 'pass' ? '#2d6a2d' : '#6a2d2d',
+            borderRadius: '3px',
+            transition: 'width 0.4s ease',
+          }" />
+          <!-- threshold marker -->
+          <div :style="{
+            position: 'absolute',
+            left: `${thresholdPercent(r)}%`,
+            top: '-3px',
+            width: '2px',
+            height: '11px',
+            background: '#c8a830',
+            borderRadius: '1px',
+          }" />
+        </div>
+      </div>
+
+      <!-- M2 manual -->
+      <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #1a3a1a;">
+        <div style="color: #6a8a6a; font-size: 11px; margin-bottom: 6px; font-weight: bold;">M2 — MANUAL</div>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #bbb; margin-bottom: 4px;">
+          <input type="checkbox" v-model="m2Checked" @change="() => { if (!m2Checked) m2Pass = false; }" />
+          I dragged a plant continuously for ~5 seconds
+        </label>
+        <label v-if="m2Checked" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-left: 20px;">
+          <input type="checkbox" v-model="m2Pass" />
+          <span :style="{ color: m2Pass ? '#5cb85c' : '#d9534f' }">
+            {{ m2Pass ? 'PASS — cursor-to-shape lag was imperceptible' : 'FAIL — visible lag or stutter' }}
           </span>
         </label>
       </div>
 
-      <div style="margin-top: 12px; display: flex; gap: 8px;">
+      <!-- Controls -->
+      <div style="margin-top: 14px; display: flex; gap: 8px;">
         <button
           @click="runAll"
           :disabled="running"
-          style="background: #1a4a1a; color: #88cc88; border: 1px solid #3a6a3a; padding: 7px 14px; cursor: pointer; border-radius: 3px; flex: 1; font-family: monospace; font-size: 12px;"
+          style="flex: 1; background: #1a4a1a; color: #6dbf6d; border: 1px solid #3a6a3a; padding: 8px; cursor: pointer; border-radius: 4px; font-family: monospace; font-size: 12px;"
         >
-          {{ running ? 'Running…' : 'Run automated tests (M1–M7 except M2)' }}
+          {{ running ? 'Running…' : 'Run automated tests' }}
         </button>
         <button
-          v-if="allAutoPass"
-          @click="copyToClipboard()"
-          style="background: #222; color: #888; border: 1px solid #444; padding: 7px 10px; cursor: pointer; border-radius: 3px; font-family: monospace;"
-          title="Copy results to clipboard"
+          v-if="anyRan"
+          @click="exportJSON()"
+          style="background: #1a2a3a; color: #6aabcf; border: 1px solid #2a4a6a; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-family: monospace; font-size: 12px;"
+          title="Download results as JSON"
         >
-          Copy
+          Export JSON
         </button>
       </div>
 
-      <div
-        v-if="verdict"
-        :style="{
-          marginTop: '12px',
-          padding: '8px 10px',
-          borderRadius: '3px',
-          fontWeight: 'bold',
-          background: verdict === 'go' ? '#0a2a0a' : '#2a0a0a',
-          color: verdict === 'go' ? '#88cc88' : '#cc5555',
-          border: `1px solid ${verdict === 'go' ? '#3a6a3a' : '#6a3a3a'}`,
-        }"
-      >
-        {{ verdict === 'go' ? '✓ GO — all 7 pass. Proceed to Experiment 2.' : '✗ NO-GO — M2 failed. Check drag performance.' }}
+      <!-- Verdict -->
+      <div v-if="verdict" :style="{
+        marginTop: '12px',
+        padding: '10px 12px',
+        borderRadius: '4px',
+        fontWeight: 'bold',
+        fontSize: '13px',
+        background: verdict === 'go' ? '#0a200a' : '#200a0a',
+        color: verdict === 'go' ? '#6dbf6d' : '#d9534f',
+        border: `1px solid ${verdict === 'go' ? '#2a5a2a' : '#5a2a2a'}`,
+      }">
+        {{ verdict === 'go' ? '✓ GO — all 7 pass. Proceed to Experiment 2.' : '✗ NO-GO — M2 failed.' }}
+      </div>
+
+      <!-- Legend -->
+      <div style="margin-top: 10px; font-size: 10px; color: #3a6a3a; display: flex; gap: 16px;">
+        <span>bar fill = measured</span>
+        <span style="color: #c8a830;">│ = threshold</span>
       </div>
     </div>
   </div>
