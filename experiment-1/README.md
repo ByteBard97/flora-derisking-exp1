@@ -19,11 +19,11 @@ npm run dev
 - `src/canvas/projection/CanvasProjection.ts` — Pinia → Konva reconciler (write-only)
 - `src/App.vue` — Stage setup, pan/zoom handlers, drag-harvest, Cmd+Z undo
 
-## Known placeholder
+## Background
 
-The background layer is a solid-color rectangle. Before measurement, replace it with
-a real backend-generated composite site plan PNG for a real lot.
-See `docs/FLORA_EXECUTION_PLAN.md` Week 0 task: "Identify the real aerial photo / parcel / DEM composite."
+Real site plan loaded: 500 Alligator Dr, Venice FL (`public/site-plan.svg`, 1.9 MB).
+SVG viewBox: 792×612 (landscape letter, 11"×8.5" at 72pt/in).
+Scaled to stage width on load, cached to a non-interactive Konva layer.
 
 ## Measurements (see v2 derisking doc)
 

@@ -27,6 +27,38 @@ let lastPointerY = 0;
 // Keyboard state
 const spaceDown = ref(false);
 
+// SVG viewBox is 0 0 792 612 (landscape letter, 72pt/in = 11"×8.5")
+const SITE_PLAN_ASPECT = 792 / 612;
+
+function loadBackground(layer: Konva.Layer, stageW: number, stageH: number): void {
+  const img = new Image();
+  img.onload = () => {
+    // Fit to stage width, maintain aspect ratio
+    const renderW = stageW;
+    const renderH = stageW / SITE_PLAN_ASPECT;
+    const offsetY = (stageH - renderH) / 2;
+    const konvaImg = new Konva.Image({
+      image: img,
+      x: 0,
+      y: offsetY,
+      width: renderW,
+      height: renderH,
+      listening: false,
+    });
+    layer.add(konvaImg);
+    layer.cache();
+    layer.batchDraw();
+  };
+  img.onerror = () => {
+    console.warn('[Exp1] site-plan.svg failed to load — falling back to solid fill');
+    const fallback = new Konva.Rect({ x: 0, y: 0, width: stageW, height: stageH, fill: '#2a3a2a' });
+    layer.add(fallback);
+    layer.cache();
+    layer.batchDraw();
+  };
+  img.src = '/site-plan.svg';
+}
+
 onMounted(() => {
   const container = containerRef.value!;
   const w = container.offsetWidth;
@@ -34,20 +66,10 @@ onMounted(() => {
 
   stage = new Konva.Stage({ container, width: w, height: h });
 
-  // Layer 1: background (cached, non-interactive)
+  // Layer 1: background (cached, non-interactive) — 500 Alligator Dr, Venice FL
   backgroundLayer = new Konva.Layer({ listening: false });
-  const bgRect = new Konva.Rect({
-    x: 0,
-    y: 0,
-    width: w,
-    height: h,
-    fill: '#2a3a2a',
-    listening: false,
-  });
-  backgroundLayer.add(bgRect);
-  // TODO: replace bgRect with real backend-generated composite PNG (required before measurement)
-  backgroundLayer.cache();
   stage.add(backgroundLayer);
+  loadBackground(backgroundLayer, w, h);
 
   // Layer 2: beds
   bedLayer = new Konva.Layer();
@@ -213,8 +235,8 @@ onBeforeUnmount(() => {
       <div style="margin-top: 4px; color: #aaa;">
         Scroll: zoom &nbsp; Space+drag: pan &nbsp; Cmd+Z: undo
       </div>
-      <div style="color: #ff9900; margin-top: 4px;">
-        Background: PLACEHOLDER — replace with real lot PNG before measurement
+      <div style="color: #88cc88; margin-top: 4px;">
+        Background: 500 Alligator Dr, Venice FL
       </div>
     </div>
   </div>
