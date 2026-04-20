@@ -13,9 +13,9 @@
  */
 
 import Konva from 'konva';
-import { watch } from 'vue';
 import type { Plant, Bed } from '@/stores/docStore';
 import type { DrawingPoint } from '@/stores/docStore';
+import { getSprite } from './spriteLoader';
 
 const SPECIES_COLORS: Record<string, string> = {
   oak: '#5c8a3c',
@@ -132,6 +132,22 @@ export class CanvasProjection {
       strokeWidth: 1,
       opacity: 0.7,
     });
+    group.add(circle);
+
+    const spriteImg = getSprite(plant.speciesType);
+    if (spriteImg) {
+      const size = canvasRadius * 1.6;
+      const sprite = new Konva.Image({
+        image: spriteImg,
+        x: -size / 2,
+        y: -size / 2,
+        width: size,
+        height: size,
+        opacity: 0.9,
+        listening: false,
+      });
+      group.add(sprite);
+    }
 
     const label = new Konva.Text({
       text: plant.label,
@@ -141,8 +157,7 @@ export class CanvasProjection {
     });
     label.offsetX(label.width() / 2);
     label.offsetY(label.height() / 2);
-
-    group.add(circle, label);
+    group.add(label);
 
     group.on('dragend', () => {
       this.onDragEnd(plant.id, group);

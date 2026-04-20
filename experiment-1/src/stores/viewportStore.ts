@@ -8,13 +8,18 @@ export interface CanvasPoint {
 }
 
 const PX_PER_INCH = 96;
-const MIN_ZOOM = 0.1;
+const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 10;
 
+// Default zoom fits a 120"×180" lot into a ~1280×720 viewport.
+// 120 * 96 * 0.08 = 921px — lot width fits in 1280px window.
+// Plant radius 2" → 15px at this zoom: visible and draggable.
+const DEFAULT_ZOOM = 0.08;
+
 export const useViewportStore = defineStore('viewport', () => {
-  const zoom = ref(1);
-  const panX = ref(0);
-  const panY = ref(0);
+  const zoom = ref(DEFAULT_ZOOM);
+  const panX = ref(20); // small padding from left edge
+  const panY = ref(20);
 
   const scale = computed(() => PX_PER_INCH * zoom.value);
 

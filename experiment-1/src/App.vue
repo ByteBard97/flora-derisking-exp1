@@ -5,6 +5,7 @@ import { useDocStore } from '@/stores/docStore';
 import { useViewportStore } from '@/stores/viewportStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { CanvasProjection } from '@/canvas/projection/CanvasProjection';
+import { loadAllSprites } from '@/canvas/projection/spriteLoader';
 
 const containerRef = ref<HTMLDivElement | null>(null);
 
@@ -26,6 +27,10 @@ let lastPointerY = 0;
 
 // Keyboard state
 const spaceDown = ref(false);
+
+// Mutation counter — exposed to Playwright via window.__flora__ for M3 verification
+let mutationCount = 0;
+docStore.$subscribe(() => { mutationCount++; });
 
 // SVG viewBox is 0 0 792 612 (landscape letter, 72pt/in = 11"×8.5")
 const SITE_PLAN_ASPECT = 792 / 612;
@@ -59,7 +64,10 @@ function loadBackground(layer: Konva.Layer, stageW: number, stageH: number): voi
   img.src = '/site-plan.svg';
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Load all species sprites before first render so nodes show images immediately.
+  await loadAllSprites();
+
   const container = containerRef.value!;
   const w = container.offsetWidth;
   const h = container.offsetHeight;
@@ -98,6 +106,36 @@ onMounted(() => {
 
   // Initial render
   doReconcile();
+
+  // Dev/test hooks — Playwright reads these to verify measurements without human eyes.
+  if (import.meta.env.DEV) {
+    (window as any).__flora__ = {
+      getPlantCount: () => docStore.plants.size,
+      // Returns number of Konva nodes actually on the plant layer — confirms reconciliation done.
+      getKonvaNodeCount: () => plantLayer?.getChildren().length ?? 0,
+      getPlantIds: () => [...docStore.plants.keys()],
+      getPlantPosition: (id: string) => docStore.plants.get(id)?.position ?? null,
+      // Returns stage-relative pixel position of a plant — for Playwright click targeting.
+      getPlantCanvasPos: (id: string) => {
+        const plant = docStore.plants.get(id);
+        if (!plant) return null;
+        return viewportStore.drawingToCanvas(plant.position);
+      },
+      // Fire a programmatic drag on a node — bypasses browser synthetic-event limitations.
+      programmaticDrag: (id: string, dxInches: number, dyInches: number): boolean => {
+        const plant = docStore.plants.get(id);
+        if (!plant) return false;
+        docStore.updatePlantPosition(id, {
+          x: plant.position.x + dxInches,
+          y: plant.position.y + dyInches,
+        });
+        return true;
+      },
+      getMutationCount: () => mutationCount,
+      resetMutationCount: () => { mutationCount = 0; },
+      undo: () => docStore.undo(),
+    };
+  }
 
   // Wheel: zoom
   stage.on('wheel', (e) => {

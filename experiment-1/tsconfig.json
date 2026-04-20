@@ -11,5 +11,6 @@
     "noEmit": true
   },
   "include": ["src/**/*", "env.d.ts"],
+  "exclude": ["src/__tests__/e2e/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
