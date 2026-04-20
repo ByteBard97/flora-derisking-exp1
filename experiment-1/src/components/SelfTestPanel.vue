@@ -252,7 +252,7 @@ const verdict = computed(() => {
       Self-test {{ open ? '▲' : '▼' }}
     </button>
 
-    <div v-if="open" style="margin-top: 8px; background: #0d150d; color: #ccc; padding: 16px; border-radius: 6px; width: 420px; border: 1px solid #2a4a2a; box-shadow: 0 4px 20px rgba(0,0,0,0.6);">
+    <div v-if="open" data-testid="self-test-panel" style="margin-top: 8px; background: #0d150d; color: #ccc; padding: 16px; border-radius: 6px; width: 420px; border: 1px solid #2a4a2a; box-shadow: 0 4px 20px rgba(0,0,0,0.6);">
 
       <!-- Header -->
       <div style="font-size: 11px; color: #5a8a5a; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #1a3a1a;">
