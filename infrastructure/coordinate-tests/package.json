@@ -1,0 +1,15 @@
+{
+  "name": "@flora-spikes/coordinate-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unit tests for viewport coordinate conversions (Experiment 0b)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  }
+}

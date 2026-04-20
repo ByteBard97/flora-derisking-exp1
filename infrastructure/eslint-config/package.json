@@ -1,0 +1,18 @@
+{
+  "name": "@flora-spikes/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical ESLint config enforcing Konva write-only discipline",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint src --ext .ts --report-unused-disable-directives",
+    "lint:verify-violation": "node scripts/verify-lint-rule.js"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.57.0",
+    "konva": "^9.3.6",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  experiment-0-coordinate-tests:
+    name: 'Exp 0b: Coordinate conversion unit tests'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infrastructure/coordinate-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: infrastructure/coordinate-tests/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  experiment-0-lint-rule:
+    name: 'Exp 0a: Konva boundary lint rule verification'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infrastructure/eslint-config
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: infrastructure/eslint-config/package-lock.json
+      - run: npm ci
+      - name: Verify violation file fails lint
+        run: |
+          # The violation file MUST fail lint. Exit 0 from eslint means the rule is broken.
+          if npx eslint src/__tests__/konva-boundary-violation.ts 2>/dev/null; then
+            echo "ERROR: violation file passed lint — boundary rule is not enforced"
+            exit 1
+          else
+            echo "PASS: violation file correctly fails lint"
+          fi
+      - name: Verify allowlisted file passes lint
+        run: |
+          npx eslint src/canvas/projection/example-allowed.ts
+          echo "PASS: allowlisted projection file passes lint"
+
+  experiment-1-typecheck:
+    name: 'Exp 1: Type check'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiment-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: experiment-1/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
