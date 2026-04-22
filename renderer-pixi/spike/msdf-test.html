@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MSDF Font Spike — Pixi v8</title>
+  <style>
+    body { margin: 0; background: #888; display: flex; flex-direction: column; align-items: flex-start; padding: 16px; font-family: sans-serif; }
+    h1 { color: #fff; font-size: 14px; margin: 0 0 8px; }
+    canvas { display: block; }
+    .label-row { display: flex; gap: 8px; color: #fff; font-size: 11px; margin-bottom: 4px; }
+    .col-header { width: 420px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>MSDF Font Spike — canvas Text (left) vs BitmapText (right) at 4 zoom levels</h1>
+
+  <!--
+    This spike validates that Pixi v8 Text and BitmapText render correctly at different zoom levels.
+
+    NOTE: This spike uses CDN Pixi, so it cannot load the local .fnt atlas from /public/fonts/plant-label.fnt.
+    BitmapText falls back to the built-in "Arial" bitmap font (if registered) or renders as blank —
+    that fallback behavior is the expected outcome here. The goal is to confirm the rendering APIs
+    are wired correctly, not to validate the actual MSDF atlas (that happens in the Vite app).
+  -->
+
+  <div class="label-row">
+    <div class="col-header">Canvas Text (canvas)</div>
+    <div class="col-header">BitmapText (bitmap / MSDF)</div>
+  </div>
+
+  <canvas id="pixi-canvas" width="840" height="640"></canvas>
+
+  <script type="module">
+    import {
+      Application,
+      Container,
+      Text,
+      BitmapText,
+      Graphics,
+    } from 'https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.mjs';
+
+    const ZOOM_LEVELS = [0.08, 0.3, 1.0, 3.0];
+    const LABELS = ['OAK-01', 'MAG-02'];
+
+    // Row height in unscaled pixels allocated per zoom level
+    const ROW_H = 150;
+    // Column x origins (left = canvas text, right = bitmap text)
+    const COL_X = [20, 440];
+    const COL_W = 400;
+
+    const app = new Application();
+    await app.init({
+      canvas: document.getElementById('pixi-canvas'),
+      width: 840,
+      height: 640,
+      antialias: true,
+      background: 0x888888,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true,
+    });
+
+    // Draw grid lines separating rows and columns
+    const grid = new Graphics();
+    grid.setStrokeStyle({ color: 0x666666, width: 1 });
+    grid.moveTo(420, 0);
+    grid.lineTo(420, 640);
+    grid.stroke();
+    for (let row = 0; row < ZOOM_LEVELS.length; row++) {
+      const y = row * ROW_H;
+      grid.moveTo(0, y);
+      grid.lineTo(840, y);
+      grid.stroke();
+    }
+    app.stage.addChild(grid);
+
+    for (let row = 0; row < ZOOM_LEVELS.length; row++) {
+      const zoom = ZOOM_LEVELS[row];
+      const rowY = row * ROW_H;
+
+      // Row label (unscaled, outside the containers)
+      const rowLabel = new Text({
+        text: `zoom ${zoom}`,
+        style: { fontSize: 10, fill: 0xdddddd },
+      });
+      rowLabel.x = 4;
+      rowLabel.y = rowY + 2;
+      app.stage.addChild(rowLabel);
+
+      // --- Left column: canvas Text ---
+      const canvasContainer = new Container();
+      canvasContainer.scale.set(zoom);
+      canvasContainer.x = COL_X[0];
+      canvasContainer.y = rowY + ROW_H * 0.15;
+
+      for (let i = 0; i < LABELS.length; i++) {
+        const t = new Text({
+          text: `${LABELS[i]} (canvas)`,
+          style: {
+            fontSize: 32,
+            fill: 0x000000,
+            fontFamily: 'Arial',
+          },
+        });
+        t.x = 10;
+        t.y = i * 50;
+        canvasContainer.addChild(t);
+      }
+
+      // Background tint so text is visible at tiny zoom
+      const bgLeft = new Graphics();
+      bgLeft.rect(0, -10, COL_W / zoom, ROW_H / zoom);
+      bgLeft.fill({ color: 0xffffff, alpha: 0.15 });
+      canvasContainer.addChildAt(bgLeft, 0);
+
+      app.stage.addChild(canvasContainer);
+
+      // --- Right column: BitmapText ---
+      // BitmapText requires a registered BitmapFont. The CDN bundle does not
+      // load local .fnt files, so this falls back to the default "Arial" bitmap
+      // font if Pixi has registered it, or renders nothing — both are expected.
+      // In the Vite app, Assets.load('/fonts/plant-label.fnt') registers the
+      // MSDF atlas before any BitmapText is created.
+      const bitmapContainer = new Container();
+      bitmapContainer.scale.set(zoom);
+      bitmapContainer.x = COL_X[1];
+      bitmapContainer.y = rowY + ROW_H * 0.15;
+
+      for (let i = 0; i < LABELS.length; i++) {
+        try {
+          const bt = new BitmapText({
+            text: `${LABELS[i]} (bitmap)`,
+            style: {
+              fontFamily: 'Arial',
+              fontSize: 32,
+            },
+          });
+          bt.x = 10;
+          bt.y = i * 50;
+          bitmapContainer.addChild(bt);
+        } catch (err) {
+          // If no bitmap font is registered, log and skip — expected in CDN spike
+          console.warn('BitmapText error (expected in CDN spike):', err);
+          const fallback = new Text({
+            text: `${LABELS[i]} (bitmap — no atlas)`,
+            style: { fontSize: 32, fill: 0xff4444, fontFamily: 'Arial' },
+          });
+          fallback.x = 10;
+          fallback.y = i * 50;
+          bitmapContainer.addChild(fallback);
+        }
+      }
+
+      const bgRight = new Graphics();
+      bgRight.rect(0, -10, COL_W / zoom, ROW_H / zoom);
+      bgRight.fill({ color: 0xffffff, alpha: 0.15 });
+      bitmapContainer.addChildAt(bgRight, 0);
+
+      app.stage.addChild(bitmapContainer);
+    }
+
+    console.log('MSDF spike loaded. BitmapText requires a registered font atlas — CDN build will show fallback.');
+  </script>
+</body>
+</html>

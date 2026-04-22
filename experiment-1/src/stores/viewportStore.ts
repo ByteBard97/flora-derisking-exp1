@@ -44,8 +44,8 @@ export const useViewportStore = defineStore('viewport', () => {
     return r * scale.value;
   }
 
-  function applyZoom(delta: number, originX: number, originY: number): void {
-    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.value * (1 - delta * 0.001)));
+  function applyZoom(delta: number, originX: number, originY: number, sensitivity = 0.001): void {
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.value * (1 - delta * sensitivity)));
     const factor = newZoom / zoom.value;
     panX.value = originX - factor * (originX - panX.value);
     panY.value = originY - factor * (originY - panY.value);

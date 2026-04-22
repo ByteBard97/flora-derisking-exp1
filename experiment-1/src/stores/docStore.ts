@@ -33,8 +33,8 @@ export interface Bed {
 }
 
 const SPECIES: SpeciesType[] = ['oak', 'magnolia', 'azalea', 'fern'];
-const LOT_WIDTH_INCHES = 120; // 10 ft wide lot
-const LOT_HEIGHT_INCHES = 180; // 15 ft deep lot
+export const LOT_WIDTH_INCHES = 120;
+export const LOT_HEIGHT_INCHES = 180;
 
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10);

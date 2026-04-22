@@ -1,0 +1,30 @@
+{
+  "name": "renderer-pixi",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:check": "vue-tsc --noEmit && vite build",
+    "type-check": "vue-tsc --noEmit",
+    "preview": "vite preview",
+    "fonts": "node scripts/generate-msdf-font.mjs",
+    "rasterize": "node scripts/rasterize-sprites.mjs",
+    "benchmark": "node benchmark/run.mjs",
+    "benchmark:report": "node benchmark/report.mjs"
+  },
+  "dependencies": {
+    "pixi.js": "^8.0.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "msdf-bmfont-xml": "^2.8.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vue-tsc": "^2.0.0"
+  }
+}

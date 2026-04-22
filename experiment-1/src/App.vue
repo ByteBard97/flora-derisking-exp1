@@ -4,8 +4,9 @@ import Konva from 'konva';
 import { useDocStore } from '@/stores/docStore';
 import { useViewportStore } from '@/stores/viewportStore';
 import { useSelectionStore } from '@/stores/selectionStore';
-import { CanvasProjection } from '@/canvas/projection/CanvasProjection';
+import { CanvasProjection, PX_PER_INCH } from '@/canvas/projection/CanvasProjection';
 import { loadAllSprites } from '@/canvas/projection/spriteLoader';
+import { LOT_WIDTH_INCHES, LOT_HEIGHT_INCHES } from '@/stores/docStore';
 import SelfTestPanel from '@/components/SelfTestPanel.vue';
 
 const APP_START = performance.now();
@@ -18,6 +19,7 @@ const selectionStore = useSelectionStore();
 
 let stage: Konva.Stage | null = null;
 let backgroundLayer: Konva.Layer | null = null;
+let bgWorld: Konva.Group | null = null;
 let bedLayer: Konva.Layer | null = null;
 let plantLayer: Konva.Layer | null = null;
 let transformer: Konva.Transformer | null = null;
@@ -31,38 +33,31 @@ let lastPointerY = 0;
 // Keyboard state
 const spaceDown = ref(false);
 const ttiMs = ref<number | null>(null);
+const pinchSensitivity = ref(0.04);  // ctrlKey pinch zoom
+const panSpeed = ref(1.0);           // two-finger scroll pan multiplier
 
 // Mutation counter — exposed to Playwright via window.__flora__ for M3 verification
 let mutationCount = 0;
 docStore.$subscribe(() => { mutationCount++; });
 
-// SVG viewBox is 0 0 792 612 (landscape letter, 72pt/in = 11"×8.5")
-const SITE_PLAN_ASPECT = 792 / 612;
+// Background covers the lot in drawing-space pixels so it zooms/pans with plants.
+const BG_W = LOT_WIDTH_INCHES * PX_PER_INCH;
+const BG_H = LOT_HEIGHT_INCHES * PX_PER_INCH;
 
-function loadBackground(layer: Konva.Layer, stageW: number, stageH: number): void {
+function loadBackground(worldGroup: Konva.Group, layer: Konva.Layer): void {
   const img = new Image();
   img.onload = () => {
-    // Fit to stage width, maintain aspect ratio
-    const renderW = stageW;
-    const renderH = stageW / SITE_PLAN_ASPECT;
-    const offsetY = (stageH - renderH) / 2;
-    const konvaImg = new Konva.Image({
+    worldGroup.add(new Konva.Image({
       image: img,
-      x: 0,
-      y: offsetY,
-      width: renderW,
-      height: renderH,
+      x: 0, y: 0,
+      width: BG_W, height: BG_H,
       listening: false,
-    });
-    layer.add(konvaImg);
-    layer.cache();
+    }));
     layer.batchDraw();
   };
   img.onerror = () => {
     console.warn('[Exp1] site-plan.svg failed to load — falling back to solid fill');
-    const fallback = new Konva.Rect({ x: 0, y: 0, width: stageW, height: stageH, fill: '#2a3a2a' });
-    layer.add(fallback);
-    layer.cache();
+    worldGroup.add(new Konva.Rect({ x: 0, y: 0, width: BG_W, height: BG_H, fill: '#2a3a2a' }));
     layer.batchDraw();
   };
   img.src = '/site-plan.svg';
@@ -78,10 +73,12 @@ onMounted(async () => {
 
   stage = new Konva.Stage({ container, width: w, height: h });
 
-  // Layer 1: background (cached, non-interactive) — 500 Alligator Dr, Venice FL
+  // Layer 1: background (non-interactive) — 500 Alligator Dr, Venice FL
   backgroundLayer = new Konva.Layer({ listening: false });
   stage.add(backgroundLayer);
-  loadBackground(backgroundLayer, w, h);
+  bgWorld = new Konva.Group();
+  backgroundLayer.add(bgWorld);
+  loadBackground(bgWorld, backgroundLayer);
 
   // Layer 2: beds
   bedLayer = new Konva.Layer();
@@ -103,13 +100,15 @@ onMounted(async () => {
   projection = new CanvasProjection(
     plantLayer,
     bedLayer,
-    viewportStore.scale,
     handleDragEnd,
     handleSelect,
   );
 
-  // Initial render
+  // Initial render — position nodes in drawing space, then apply viewport transform
   doReconcile();
+  projection.updateViewport(viewportStore.zoom, viewportStore.panX, viewportStore.panY);
+  bgWorld!.scale({ x: viewportStore.zoom, y: viewportStore.zoom });
+  bgWorld!.position({ x: viewportStore.panX, y: viewportStore.panY });
   ttiMs.value = performance.now() - APP_START;
 
   // Dev/test hooks — Playwright reads these to verify measurements without human eyes.
@@ -142,10 +141,14 @@ onMounted(async () => {
     };
   }
 
-  // Wheel: zoom
+  // Pinch (ctrlKey) → zoom. Two-finger scroll → pan.
   stage.on('wheel', (e) => {
     e.evt.preventDefault();
-    viewportStore.applyZoom(e.evt.deltaY, e.evt.clientX, e.evt.clientY);
+    if (e.evt.ctrlKey) {
+      viewportStore.applyZoom(e.evt.deltaY, e.evt.clientX, e.evt.clientY, pinchSensitivity.value);
+    } else {
+      viewportStore.applyPan(-e.evt.deltaX * panSpeed.value, -e.evt.deltaY * panSpeed.value);
+    }
   });
 
   // Pan: space+drag or middle-mouse
@@ -187,9 +190,10 @@ onMounted(async () => {
 
 function handleDragEnd(plantId: string, node: Konva.Group): void {
   // Drag-harvest: the ONE permitted Konva state read.
-  // Immediately converted to drawing coords and dispatched to Pinia.
-  const canvasPos = node.position();
-  const drawingPos = viewportStore.canvasToDrawing(canvasPos);
+  // node.position() is in world-group local coords (drawing-space pixels).
+  // Divide by PX_PER_INCH to get drawing-space inches.
+  const localPos = node.position();
+  const drawingPos = { x: localPos.x / PX_PER_INCH, y: localPos.y / PX_PER_INCH };
   docStore.updatePlantPosition(plantId, drawingPos);
 
   if (import.meta.env.DEV) {
@@ -222,25 +226,25 @@ function handleKeyUp(e: KeyboardEvent): void {
 
 function doReconcile(): void {
   if (!projection) return;
-  projection.reconcilePlants(
-    docStore.plants,
-    viewportStore.drawingToCanvas,
-    viewportStore.drawingRadiusToCanvas,
-  );
-  projection.reconcileBeds(
-    docStore.beds,
-    viewportStore.drawingToCanvas,
-    viewportStore.scale,
-  );
+  projection.reconcilePlants(docStore.plants);
+  projection.reconcileBeds(docStore.beds);
 }
 
-// Re-reconcile when viewport changes (pan/zoom)
+// Viewport changes: update world-group transform only — no node iteration.
 watch(
   () => [viewportStore.zoom, viewportStore.panX, viewportStore.panY],
-  () => doReconcile(),
+  () => {
+    const { zoom, panX, panY } = viewportStore;
+    projection?.updateViewport(zoom, panX, panY);
+    if (bgWorld) {
+      bgWorld.scale({ x: zoom, y: zoom });
+      bgWorld.position({ x: panX, y: panY });
+      backgroundLayer?.batchDraw();
+    }
+  },
 );
 
-// Re-reconcile when doc changes (drag, undo)
+// Doc changes (drag commit, undo): reconcile node positions.
 watch(
   () => docStore.plants,
   () => {
@@ -279,10 +283,18 @@ onBeforeUnmount(() => {
       <div data-testid="stat-zoom">Zoom: {{ (viewportStore.zoom * 100).toFixed(0) }}%</div>
       <div data-testid="stat-selected">Selected: {{ selectionStore.selectedPlantId ?? 'none' }}</div>
       <div data-testid="stat-undo-stack">Undo stack: {{ docStore.undoStack.length }}/10</div>
-      <div style="margin-top: 4px; color: #aaa;">
-        Scroll: zoom &nbsp; Space+drag: pan &nbsp; Cmd+Z: undo
+      <div style="margin-top: 6px; color: #aaa; font-size: 11px;">
+        Pinch: zoom &nbsp; 2-finger scroll: pan &nbsp; Cmd+Z: undo
       </div>
-      <div data-testid="site-label" style="color: #88cc88; margin-top: 4px;">
+      <div style="margin-top: 8px; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 6px; align-items: center; font-size: 11px; color: #ccc;">
+        <label>Pinch</label>
+        <input type="range" v-model.number="pinchSensitivity" min="0.005" max="0.12" step="0.005" style="width: 100%;" />
+        <span>{{ pinchSensitivity.toFixed(3) }}</span>
+        <label>Pan</label>
+        <input type="range" v-model.number="panSpeed" min="0.3" max="3.0" step="0.1" style="width: 100%;" />
+        <span>{{ panSpeed.toFixed(1) }}×</span>
+      </div>
+      <div data-testid="site-label" style="color: #88cc88; margin-top: 6px;">
         Background: 500 Alligator Dr, Venice FL
       </div>
     </aside>
