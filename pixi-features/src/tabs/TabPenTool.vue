@@ -11,6 +11,21 @@
  *  - stage.on('pointermove') single global handler, not per-handle
  */
 import { ref, onMounted, onUnmounted, markRaw } from 'vue';
+
+interface PenToolAnchorSnapshot {
+  index: number
+  type: 'corner' | 'smooth' | 'asymmetric'
+  x: number
+  y: number
+  hasHandleIn: boolean
+  hasHandleOut: boolean
+}
+
+interface PenToolSnapshot {
+  mode: 'idle' | 'drawing' | 'done'
+  closed: boolean
+  anchors: PenToolAnchorSnapshot[]
+}
 import {
   Application, Graphics, Container, GraphicsContext, Rectangle,
   type Ticker,
@@ -211,6 +226,7 @@ function rebuildHandles() {
     let anchorCtx = node.type === 'corner' ? ctxAnchorCorner : ctxAnchorSmooth;
     if (isFirst && mode.value === 'drawing') anchorCtx = ctxAnchorSelected;
     const dot = markRaw(new Graphics(anchorCtx));
+    dot.label = `test:anchor-${i}`;
     dot.position.set(x, y);
     dot.eventMode = 'static';
     dot.hitArea = new Rectangle(-8, -8, 16, 16);
@@ -532,6 +548,25 @@ onMounted(async () => {
   bg.eventMode = 'static';
   bg.on('pointerdown', onStagePointerDown);
   worldLayer.addChildAt(bg, 0);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'pen-tool',
+      getSnapshot: (): PenToolSnapshot => ({
+        mode: mode.value,
+        closed: closed.value,
+        anchors: anchors.value.map((a, i) => ({
+          index: i,
+          type: a.type,
+          x: a.x,
+          y: a.y,
+          hasHandleIn: !!a.handleIn,
+          hasHandleOut: !!a.handleOut,
+        })),
+      }),
+    })
+  }
 
   app.stage.eventMode = 'static';
   app.stage.on('pointermove', onStagePointerMove);
