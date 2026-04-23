@@ -42,6 +42,14 @@ function handleSelect(plantId: string | null): void {
   else selectionStore.clearSelection();
 }
 
+function handleToggleSelect(plantId: string): void {
+  selectionStore.togglePlant(plantId);
+}
+
+function handleSelectMany(ids: string[]): void {
+  selectionStore.selectMany(ids);
+}
+
 function handleKeydown(e: KeyboardEvent): void {
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
     e.preventDefault();
@@ -78,9 +86,11 @@ onBeforeUnmount(() => {
       ref="pixiCanvas"
       :plants="plants"
       :beds="beds"
-      :selected-id="selectionStore.selectedPlantId"
+      :selected-ids="selectionStore.selectedIds"
       @drag-end="handleDragEnd"
       @select="handleSelect"
+      @toggle-select="handleToggleSelect"
+      @select-many="handleSelectMany"
       @zoom="z => zoom = z"
     />
 
@@ -89,7 +99,7 @@ onBeforeUnmount(() => {
       <div class="fps">{{ fps }} <span>fps</span></div>
       <div>{{ frameMs }} ms/frame</div>
       <div>plants: {{ docStore.plants.size }}</div>
-      <div>selected: {{ selectionStore.selectedPlantId?.slice(0, 6) ?? 'none' }}</div>
+      <div>selected: {{ selectionStore.selectedIds.size === 0 ? 'none' : selectionStore.selectedIds.size }}</div>
       <div>undo: {{ docStore.undoStack.length }}/10</div>
       <div :style="{ color: zoom < 0.05 ? '#f66' : zoom < 0.15 ? '#fa0' : '#0f0' }">
         zoom: {{ zoom.toFixed(3) }} · lod{{ zoom < 0.05 ? 0 : zoom < 0.15 ? 1 : 2 }}

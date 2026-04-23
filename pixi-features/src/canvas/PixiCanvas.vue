@@ -10,12 +10,14 @@ const DRAG_THRESHOLD_PX = 4;
 const props = defineProps<{
   plants: Plant[];
   beds: Bed[];
-  selectedId: string | null;
+  selectedIds: Set<string>;
 }>();
 
 const emit = defineEmits<{
   dragEnd: [plantId: string, pos: { x: number; y: number }];
   select: [plantId: string | null];
+  toggleSelect: [plantId: string];
+  selectMany: [ids: string[]];
   ready: [ttiMs: number];
   zoom: [scale: number];
 }>();
@@ -99,7 +101,11 @@ onMounted(async () => {
       const [plantId, pos] = args as [string, { x: number; y: number }];
       emit('dragEnd', plantId, pos);
     } else if (event === 'select') {
-      emit('select', args[0] as string);
+      emit('select', args[0] as string | null);
+    } else if (event === 'toggleSelect') {
+      emit('toggleSelect', args[0] as string);
+    } else if (event === 'selectMany') {
+      emit('selectMany', args[0] as string[]);
     }
   };
 
@@ -199,7 +205,7 @@ function onStagePointerUp(): void {
 // ------- Reactive prop watches -------
 watch(() => props.plants, (plants) => renderer?.syncPlants(plants), { deep: false });
 watch(() => props.beds, (beds) => renderer?.syncBeds(beds), { deep: false });
-watch(() => props.selectedId, (id) => renderer?.setSelected(id ?? null));
+watch(() => props.selectedIds, (ids) => renderer?.setSelected(ids), { deep: false });
 </script>
 
 <template>

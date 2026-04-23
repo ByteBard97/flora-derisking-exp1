@@ -102,6 +102,7 @@ export class PixiRenderer {
   private labelOffsets = new Map<string, Pt>();
   private textureCache = new Map<string, Texture>();
   private currentLod = 2;
+  private selectedIds = new Set<string>();
 
   constructor(
     private viewport: Viewport,
@@ -363,9 +364,10 @@ export class PixiRenderer {
     }
   }
 
-  setSelected(id: string | null): void {
-    for (const [containerId, container] of this.plantContainers) {
-      const isSelected = containerId === id;
+  setSelected(ids: Set<string>): void {
+    this.selectedIds = ids;
+    for (const [id, container] of this.plantContainers) {
+      const isSelected = ids.has(id);
       container.alpha = isSelected ? 0.8 : 1.0;
       const sprite = container.getChildByLabel('sprite') as Sprite | null;
       if (sprite) sprite.tint = isSelected ? 0xffff99 : 0xffffff;
@@ -381,25 +383,36 @@ export class PixiRenderer {
   }
 
   selectByLasso(lx: number, ly: number, rx: number, ry: number): void {
+    const hits: string[] = [];
     for (const [id, container] of this.plantContainers) {
       if (container.x >= lx && container.x <= rx && container.y >= ly && container.y <= ry) {
-        this.emit('select', id);
-        return;
+        hits.push(id);
       }
     }
+    if (hits.length > 0) this.emit('selectMany', hits);
   }
 
   private setupPlantDrag(container: Container, plantId: string): void {
     let active = false;
     let didDrag = false;
+    let shiftOnDown = false;
     let startClient = { x: 0, y: 0 };
-    let startWorld = { x: 0, y: 0 };
+    type Snap = { id: string; c: Container; sx: number; sy: number };
+    let snapshots: Snap[] = [];
 
     container.on('pointerdown', (e) => {
       active = true;
       didDrag = false;
+      shiftOnDown = e.shiftKey;
       startClient = { x: e.clientX, y: e.clientY };
-      startWorld = { x: container.x, y: container.y };
+
+      // Drag the whole selection if this plant is part of it, otherwise just this plant
+      const idsToMove = this.selectedIds.has(plantId) ? this.selectedIds : new Set([plantId]);
+      snapshots = [...idsToMove].flatMap((id) => {
+        const c = this.plantContainers.get(id);
+        return c ? [{ id, c, sx: c.x, sy: c.y }] : [];
+      });
+
       this.viewport.plugins.pause('drag');
       e.stopPropagation();
     });
@@ -411,12 +424,11 @@ export class PixiRenderer {
       if (!didDrag && Math.sqrt(dx * dx + dy * dy) >= 4) didDrag = true;
       if (!didDrag) return;
       const z = this.viewport.scale.x;
-      container.x = startWorld.x + dx / z;
-      container.y = startWorld.y + dy / z;
-
-      // Get plant radius from hitArea for leader line redraw
-      const r = (container.hitArea as Circle)?.radius ?? 48;
-      this.drawLeaderLine(plantId, r);
+      for (const { id, c, sx, sy } of snapshots) {
+        c.x = sx + dx / z;
+        c.y = sy + dy / z;
+        this.drawLeaderLine(id, (c.hitArea as Circle)?.radius ?? 48);
+      }
     });
 
     const onUp = () => {
@@ -424,12 +436,11 @@ export class PixiRenderer {
       active = false;
       this.viewport.plugins.resume('drag');
       if (didDrag) {
-        this.emit('dragEnd', plantId, {
-          x: container.x / PX_PER_INCH,
-          y: container.y / PX_PER_INCH,
-        });
+        for (const { id, c } of snapshots) {
+          this.emit('dragEnd', id, { x: c.x / PX_PER_INCH, y: c.y / PX_PER_INCH });
+        }
       } else {
-        this.emit('select', plantId);
+        this.emit(shiftOnDown ? 'toggleSelect' : 'select', plantId);
       }
     };
 
