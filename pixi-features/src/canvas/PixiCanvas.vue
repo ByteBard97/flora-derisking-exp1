@@ -17,6 +17,7 @@ const emit = defineEmits<{
   dragEnd: [plantId: string, pos: { x: number; y: number }];
   select: [plantId: string | null];
   ready: [ttiMs: number];
+  zoom: [scale: number];
 }>();
 
 defineExpose({ setCamera, getShapeCount, setTickerMaxFPS, setBackgroundVisible });
@@ -73,6 +74,10 @@ onMounted(async () => {
 
   app.stage.addChild(viewport);
   app.stage.eventMode = 'static';
+  viewport.on('zoomed', () => {
+    renderer?.updateLOD(viewport.scale.x);
+    emit('zoom', viewport.scale.x);
+  });
 
   // Transparent background quad — intercepts background clicks for lasso/deselect.
   // Pauses viewport drag so lasso and pan don't conflict.

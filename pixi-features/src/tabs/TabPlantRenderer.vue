@@ -14,6 +14,7 @@ const plantCount = ref(300);
 // FPS stats
 const fps = ref(0);
 const frameMs = ref(0);
+const zoom = ref(0.3);
 let rafId = 0;
 let lastFrameTime = performance.now();
 let frameCount = 0;
@@ -80,6 +81,7 @@ onBeforeUnmount(() => {
       :selected-id="selectionStore.selectedPlantId"
       @drag-end="handleDragEnd"
       @select="handleSelect"
+      @zoom="z => zoom = z"
     />
 
     <!-- FPS overlay -->
@@ -89,6 +91,9 @@ onBeforeUnmount(() => {
       <div>plants: {{ docStore.plants.size }}</div>
       <div>selected: {{ selectionStore.selectedPlantId?.slice(0, 6) ?? 'none' }}</div>
       <div>undo: {{ docStore.undoStack.length }}/10</div>
+      <div :style="{ color: zoom < 0.05 ? '#f66' : zoom < 0.15 ? '#fa0' : '#0f0' }">
+        zoom: {{ zoom.toFixed(3) }} · lod{{ zoom < 0.05 ? 0 : zoom < 0.15 ? 1 : 2 }}
+      </div>
     </div>
 
     <!-- Controls -->

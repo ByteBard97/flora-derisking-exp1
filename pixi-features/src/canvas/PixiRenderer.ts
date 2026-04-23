@@ -24,6 +24,10 @@ const STROKE_WIDTH = 1.5;
 const ARROW_LENGTH_FACTOR = 10;
 const ARROW_HALF_WIDTH_FACTOR = 3;
 
+// LOD thresholds — tuned empirically for 300 plants
+const LOD_INVISIBLE = 0.05;  // zoom below this: container hidden
+const LOD_SIMPLE    = 0.15;  // zoom below this: circle only (no sprite/label/leader)
+
 const SPECIES_COLORS: Record<string, number> = {
   oak: 0x4a7c59,
   magnolia: 0xc8a2c8,
@@ -97,6 +101,7 @@ export class PixiRenderer {
   private plantContainers = new Map<string, Container>();
   private labelOffsets = new Map<string, Pt>();
   private textureCache = new Map<string, Texture>();
+  private currentLod = 2;
 
   constructor(
     private viewport: Viewport,
@@ -133,10 +138,17 @@ export class PixiRenderer {
 
   async setBackground(): Promise<void> {
     try {
-      const texture = await Assets.load('/site-plan.svg');
+      // resolution:5 rasterizes the SVG at 5× its native viewBox size (792×612 → 3960×3060),
+      // giving crisp detail at typical zoom levels. autoGenerateMipmaps prevents aliasing
+      // when zoomed out. Sprite width is set to WORLD_W; height is derived from the texture's
+      // natural aspect ratio so the SVG is never stretched.
+      const texture = await Assets.load({
+        src: '/site-plan.svg',
+        data: { resolution: 5, autoGenerateMipmaps: true },
+      });
       const sprite = new Sprite(texture);
       sprite.width = WORLD_W;
-      sprite.height = WORLD_H;
+      sprite.height = WORLD_W * (texture.height / texture.width);
       this.bgLayer.addChild(sprite);
     } catch {
       const bg = new Graphics();
@@ -202,6 +214,7 @@ export class PixiRenderer {
         container.addChild(circle, sprite, leaderGfx, label);
         this.setupPlantDrag(container, plant.id);
         this.setupLabelDrag(label, plant.id);
+        this.applyLOD(container, this.currentLod);
         this.plantLayer.addChild(container);
         this.plantContainers.set(plant.id, container);
       }
@@ -291,6 +304,25 @@ export class PixiRenderer {
         arrowBase.x - px * halfW, arrowBase.y - py * halfW,
       ])
       .fill({ color: 0xe0e0e0 });
+  }
+
+  updateLOD(zoom: number): void {
+    const lod = zoom < LOD_INVISIBLE ? 0 : zoom < LOD_SIMPLE ? 1 : 2;
+    if (lod === this.currentLod) return;
+    this.currentLod = lod;
+    for (const container of this.plantContainers.values()) {
+      this.applyLOD(container, lod);
+    }
+  }
+
+  private applyLOD(container: Container, lod: number): void {
+    container.visible = lod > 0;
+    const sprite = container.getChildByLabel('sprite') as Sprite | null;
+    const label  = container.getChildByLabel('label')  as BitmapText | null;
+    const leader = container.getChildByLabel('leader') as Graphics | null;
+    if (sprite) sprite.visible = lod >= 2;
+    if (label)  label.visible  = lod >= 2;
+    if (leader) leader.visible = lod >= 2;
   }
 
   syncBeds(beds: Bed[]): void {
