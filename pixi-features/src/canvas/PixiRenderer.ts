@@ -1,5 +1,4 @@
 import {
-  Application,
   Assets,
   Cache,
   Container,
@@ -11,12 +10,19 @@ import {
   TextStyle,
   Texture,
 } from 'pixi.js';
+import { Viewport } from 'pixi-viewport';
 import type { Plant, Bed } from '@/stores/docStore';
 
 const PX_PER_INCH = 96;
 const WORLD_W = 120 * PX_PER_INCH;
 const WORLD_H = 180 * PX_PER_INCH;
-const SPRITE_SIZE = 512; // px — crisp up to ~5× zoom
+const SPRITE_SIZE = 512;
+
+// Leader line constants (from FloraLeaderLineDrawing.cpp)
+const NEARNESS_THRESHOLD = 2;
+const STROKE_WIDTH = 1.5;
+const ARROW_LENGTH_FACTOR = 10;
+const ARROW_HALF_WIDTH_FACTOR = 3;
 
 const SPECIES_COLORS: Record<string, number> = {
   oak: 0x4a7c59,
@@ -27,7 +33,49 @@ const SPECIES_COLORS: Record<string, number> = {
 
 const KNOWN_SPECIES = ['oak', 'magnolia', 'azalea', 'fern'];
 
-/** Rasterize an SVG URL to a square Pixi Texture at SPRITE_SIZE px using the browser renderer. */
+interface Pt { x: number; y: number }
+interface Rect { x: number; y: number; w: number; h: number }
+
+/** Where a ray from `inside` toward `target` exits the bounding rect. */
+function rayRectExit(rect: Rect, inside: Pt, target: Pt): Pt {
+  const dx = target.x - inside.x;
+  const dy = target.y - inside.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return inside;
+  const { x: left, y: top } = rect;
+  const right = rect.x + rect.w;
+  const bottom = rect.y + rect.h;
+  let tMin = 1e18;
+  if (Math.abs(dx) > 1e-9) {
+    for (const edge of [left, right]) {
+      const t = (edge - inside.x) / dx;
+      if (t > 0 && t < tMin) {
+        const y = inside.y + t * dy;
+        if (y >= top && y <= bottom) tMin = t;
+      }
+    }
+  }
+  if (Math.abs(dy) > 1e-9) {
+    for (const edge of [top, bottom]) {
+      const t = (edge - inside.y) / dy;
+      if (t > 0 && t < tMin) {
+        const x = inside.x + t * dx;
+        if (x >= left && x <= right) tMin = t;
+      }
+    }
+  }
+  if (tMin >= 1e17) return inside;
+  return { x: inside.x + tMin * dx, y: inside.y + tMin * dy };
+}
+
+/** Point on the circle edge nearest to `from`. */
+function circleEdgePoint(center: Pt, radius: number, from: Pt): Pt {
+  const dx = from.x - center.x;
+  const dy = from.y - center.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist === 0) return { x: center.x + radius, y: center.y };
+  return { x: center.x + (dx / dist) * radius, y: center.y + (dy / dist) * radius };
+}
+
 async function svgToTexture(url: string): Promise<Texture> {
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
@@ -47,32 +95,27 @@ export class PixiRenderer {
   private bedLayer: Container;
   private bgLayer: Container;
   private plantContainers = new Map<string, Container>();
+  private labelOffsets = new Map<string, Pt>();
   private textureCache = new Map<string, Texture>();
 
   constructor(
-    private app: Application,
+    private viewport: Viewport,
     private emit: (event: string, ...args: unknown[]) => void,
   ) {
-    this.plantLayer = new Container();
-    this.bedLayer = new Container();
     this.bgLayer = new Container();
-    app.stage.addChild(this.bgLayer, this.bedLayer, this.plantLayer);
+    this.bedLayer = new Container();
+    this.plantLayer = new Container();
+    viewport.addChild(this.bgLayer, this.bedLayer, this.plantLayer);
   }
 
-  /**
-   * Rasterize plant SVGs to high-res textures and install the label BitmapFont.
-   * Must be awaited before syncPlants().
-   */
   async init(): Promise<void> {
-    // Guard against hot-reload double-install (cache key is "<name>-bitmap")
     if (!Cache.has('plant-label-bitmap')) {
       BitmapFont.install({
         name: 'plant-label',
         style: new TextStyle({
           fontFamily: 'Times New Roman, Times, serif',
           fontSize: 96,
-          fill: '#000000',
-          stroke: { color: '#ffffff', width: 12 },
+          fill: '#ffffff',
           fontWeight: 'bold',
         }),
         chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
@@ -80,9 +123,6 @@ export class PixiRenderer {
       });
     }
 
-    // Rasterize each species SVG at SPRITE_SIZE using the browser's native SVG renderer.
-    // This preserves full color fidelity (CSS classes, gradients) and batches to one
-    // draw call per frame — far cheaper than live GraphicsContext.svg() rendering.
     await Promise.all(
       KNOWN_SPECIES.map(async (species) => {
         const texture = await svgToTexture(`/sprites/${species}.svg`);
@@ -114,6 +154,7 @@ export class PixiRenderer {
         this.plantLayer.removeChild(container);
         container.destroy();
         this.plantContainers.delete(id);
+        this.labelOffsets.delete(id);
       }
     }
 
@@ -131,41 +172,47 @@ export class PixiRenderer {
         container.hitArea = new Circle(0, 0, r);
 
         const circle = new Graphics();
-        circle.circle(0, 0, r);
-        circle.fill({ color: SPECIES_COLORS[plant.speciesType] ?? 0xaaaaaa, alpha: 0.7 });
         circle.label = 'circle';
+        circle.eventMode = 'none';
 
         const texture = this.textureCache.get(plant.speciesType) ?? Texture.WHITE;
         const sprite = new Sprite(texture);
         sprite.anchor.set(0.5);
-        sprite.width = r * 1.6;
-        sprite.height = r * 1.6;
         sprite.eventMode = 'none';
         sprite.label = 'sprite';
+
+        const leaderGfx = new Graphics();
+        leaderGfx.eventMode = 'none';
+        leaderGfx.label = 'leader';
 
         const label = new BitmapText({
           text: plant.label,
           style: { fontFamily: 'plant-label', fontSize: Math.max(8, r * 0.5) },
         });
         label.anchor.set(0.5, 0.5);
-        label.eventMode = 'none';
+        label.eventMode = 'static';
+        label.cursor = 'grab';
         label.label = 'label';
 
-        container.addChild(circle, sprite, label);
-        this.setupDrag(container, plant.id);
+        // Default label offset: upper-right of plant
+        const offset: Pt = { x: r * 1.6, y: -r * 0.8 };
+        label.position.set(offset.x, offset.y);
+        this.labelOffsets.set(plant.id, offset);
+
+        container.addChild(circle, sprite, leaderGfx, label);
+        this.setupPlantDrag(container, plant.id);
+        this.setupLabelDrag(label, plant.id);
         this.plantLayer.addChild(container);
         this.plantContainers.set(plant.id, container);
       }
 
       container.x = cx;
       container.y = cy;
-
       container.hitArea = new Circle(0, 0, r);
 
       const circle = container.getChildByLabel('circle') as Graphics;
       circle.clear();
-      circle.circle(0, 0, r);
-      circle.fill({ color: SPECIES_COLORS[plant.speciesType] ?? 0xaaaaaa, alpha: 0.7 });
+      circle.circle(0, 0, r).fill({ color: SPECIES_COLORS[plant.speciesType] ?? 0xaaaaaa, alpha: 0.7 });
 
       const sprite = container.getChildByLabel('sprite') as Sprite;
       sprite.width = r * 1.6;
@@ -173,7 +220,77 @@ export class PixiRenderer {
 
       const label = container.getChildByLabel('label') as BitmapText;
       label.style.fontSize = Math.max(8, r * 0.5);
+
+      this.drawLeaderLine(plant.id, r);
     }
+  }
+
+  private drawLeaderLine(plantId: string, r: number): void {
+    const container = this.plantContainers.get(plantId);
+    if (!container) return;
+
+    const leaderGfx = container.getChildByLabel('leader') as Graphics;
+    const label = container.getChildByLabel('label') as BitmapText;
+    if (!leaderGfx || !label) return;
+
+    leaderGfx.clear();
+
+    const lx = label.x;
+    const ly = label.y;
+    const labelCenter: Pt = { x: lx, y: ly };
+    const circleCenter: Pt = { x: 0, y: 0 };
+
+    const lw = label.width + 8;
+    const lh = label.height + 4;
+    const labelRect: Rect = { x: lx - lw / 2, y: ly - lh / 2, w: lw, h: lh };
+
+    const dxC = lx - circleCenter.x;
+    const dyC = ly - circleCenter.y;
+    const distToCenter = Math.sqrt(dxC * dxC + dyC * dyC);
+    if (distToCenter <= r) return;
+
+    const labelEdgePt = rayRectExit(labelRect, labelCenter, circleCenter);
+    const circleEdgePt = circleEdgePoint(circleCenter, r, labelCenter);
+
+    const dx = labelEdgePt.x - circleEdgePt.x;
+    const dy = labelEdgePt.y - circleEdgePt.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= NEARNESS_THRESHOLD) return;
+
+    const arrowLen = STROKE_WIDTH * ARROW_LENGTH_FACTOR;
+    if (dist <= arrowLen * 2) {
+      leaderGfx
+        .moveTo(labelEdgePt.x, labelEdgePt.y)
+        .lineTo(circleEdgePt.x, circleEdgePt.y)
+        .stroke({ color: 0xe0e0e0, width: STROKE_WIDTH });
+      return;
+    }
+
+    const adx = circleEdgePt.x - labelEdgePt.x;
+    const ady = circleEdgePt.y - labelEdgePt.y;
+    const aDist = Math.sqrt(adx * adx + ady * ady);
+    const ux = adx / aDist;
+    const uy = ady / aDist;
+    const arrowBase: Pt = {
+      x: circleEdgePt.x - ux * arrowLen,
+      y: circleEdgePt.y - uy * arrowLen,
+    };
+
+    leaderGfx
+      .moveTo(labelEdgePt.x, labelEdgePt.y)
+      .lineTo(arrowBase.x, arrowBase.y)
+      .stroke({ color: 0xe0e0e0, width: STROKE_WIDTH });
+
+    const halfW = STROKE_WIDTH * ARROW_HALF_WIDTH_FACTOR;
+    const px = -uy;
+    const py = ux;
+    leaderGfx
+      .poly([
+        circleEdgePt.x, circleEdgePt.y,
+        arrowBase.x + px * halfW, arrowBase.y + py * halfW,
+        arrowBase.x - px * halfW, arrowBase.y - py * halfW,
+      ])
+      .fill({ color: 0xe0e0e0 });
   }
 
   syncBeds(beds: Bed[]): void {
@@ -231,17 +348,16 @@ export class PixiRenderer {
     return this.plantContainers.size + this.bedLayer.children.length + 1;
   }
 
-  /** Select plants whose world-space center falls inside the lasso rectangle. */
   selectByLasso(lx: number, ly: number, rx: number, ry: number): void {
     for (const [id, container] of this.plantContainers) {
       if (container.x >= lx && container.x <= rx && container.y >= ly && container.y <= ry) {
         this.emit('select', id);
-        return; // single-select: pick first hit (multi-select needs store changes)
+        return;
       }
     }
   }
 
-  private setupDrag(container: Container, plantId: string): void {
+  private setupPlantDrag(container: Container, plantId: string): void {
     let active = false;
     let didDrag = false;
     let startClient = { x: 0, y: 0 };
@@ -252,6 +368,7 @@ export class PixiRenderer {
       didDrag = false;
       startClient = { x: e.clientX, y: e.clientY };
       startWorld = { x: container.x, y: container.y };
+      this.viewport.plugins.pause('drag');
       e.stopPropagation();
     });
 
@@ -261,14 +378,19 @@ export class PixiRenderer {
       const dy = e.clientY - startClient.y;
       if (!didDrag && Math.sqrt(dx * dx + dy * dy) >= 4) didDrag = true;
       if (!didDrag) return;
-      const z = this.app.stage.scale.x;
+      const z = this.viewport.scale.x;
       container.x = startWorld.x + dx / z;
       container.y = startWorld.y + dy / z;
+
+      // Get plant radius from hitArea for leader line redraw
+      const r = (container.hitArea as Circle)?.radius ?? 48;
+      this.drawLeaderLine(plantId, r);
     });
 
     const onUp = () => {
       if (!active) return;
       active = false;
+      this.viewport.plugins.resume('drag');
       if (didDrag) {
         this.emit('dragEnd', plantId, {
           x: container.x / PX_PER_INCH,
@@ -281,5 +403,44 @@ export class PixiRenderer {
 
     container.on('pointerup', onUp);
     container.on('pointerupoutside', onUp);
+  }
+
+  private setupLabelDrag(label: BitmapText, plantId: string): void {
+    let active = false;
+    let startClient = { x: 0, y: 0 };
+    let startLabelPos = { x: 0, y: 0 };
+
+    label.on('pointerdown', (e) => {
+      e.stopPropagation();
+      active = true;
+      startClient = { x: e.clientX, y: e.clientY };
+      startLabelPos = { x: label.x, y: label.y };
+      this.viewport.plugins.pause('drag');
+      label.cursor = 'grabbing';
+    });
+
+    label.on('pointermove', (e) => {
+      if (!active) return;
+      const z = this.viewport.scale.x;
+      const dx = (e.clientX - startClient.x) / z;
+      const dy = (e.clientY - startClient.y) / z;
+      label.x = startLabelPos.x + dx;
+      label.y = startLabelPos.y + dy;
+      this.labelOffsets.set(plantId, { x: label.x, y: label.y });
+
+      const container = this.plantContainers.get(plantId);
+      const r = (container?.hitArea as Circle)?.radius ?? 48;
+      this.drawLeaderLine(plantId, r);
+    });
+
+    const onUp = () => {
+      if (!active) return;
+      active = false;
+      this.viewport.plugins.resume('drag');
+      label.cursor = 'grab';
+    };
+
+    label.on('pointerup', onUp);
+    label.on('pointerupoutside', onUp);
   }
 }

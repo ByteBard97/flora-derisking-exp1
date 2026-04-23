@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { Application, Graphics } from 'pixi.js';
+import { Viewport } from 'pixi-viewport';
 import { PixiRenderer } from './PixiRenderer';
 import type { Plant, Bed } from '@/stores/docStore';
 
@@ -10,8 +11,6 @@ const props = defineProps<{
   plants: Plant[];
   beds: Bed[];
   selectedId: string | null;
-  panSensitivity?: number;
-  zoomSensitivity?: number;
 }>();
 
 const emit = defineEmits<{
@@ -26,13 +25,8 @@ const canvasEl = ref<HTMLCanvasElement | null>(null);
 const containerEl = ref<HTMLDivElement | null>(null);
 
 let app: Application | null = null;
+let viewport: Viewport | null = null;
 let renderer: PixiRenderer | null = null;
-
-// Pan state
-let spaceHeld = false;
-let m3Panning = false;
-let m3PanStart = { x: 0, y: 0 };
-let m3PanOrigin = { x: 0, y: 0 };
 
 // Lasso state
 let lassoGfx: Graphics | null = null;
@@ -40,18 +34,9 @@ let isLasso = false;
 let lassoStartWorld = { x: 0, y: 0 };
 let lassoCurrentWorld = { x: 0, y: 0 };
 
-// Space+drag pan state
-let spacePanning = false;
-let spacePanStart = { x: 0, y: 0 };
-let spacePanOrigin = { x: 0, y: 0 };
-
 function screenToWorld(sx: number, sy: number) {
-  if (!app) return { x: 0, y: 0 };
-  const z = app.stage.scale.x;
-  return {
-    x: (sx - app.stage.position.x) / z,
-    y: (sy - app.stage.position.y) / z,
-  };
+  if (!viewport) return { x: 0, y: 0 };
+  return viewport.toWorld(sx, sy);
 }
 
 onMounted(async () => {
@@ -68,6 +53,42 @@ onMounted(async () => {
     autoDensity: true,
   });
 
+  const W = containerEl.value.clientWidth;
+  const H = containerEl.value.clientHeight;
+
+  viewport = new Viewport({
+    screenWidth: W,
+    screenHeight: H,
+    worldWidth: 120 * 96,
+    worldHeight: 180 * 96,
+    events: app.renderer.events,
+  });
+
+  viewport
+    .drag()
+    .wheel({ smooth: 8 })
+    .decelerate({ friction: 0.93 })
+    .clampZoom({ minScale: 0.05, maxScale: 10 })
+    .pinch();
+
+  app.stage.addChild(viewport);
+  app.stage.eventMode = 'static';
+
+  // Transparent background quad — intercepts background clicks for lasso/deselect.
+  // Pauses viewport drag so lasso and pan don't conflict.
+  const bgGfx = new Graphics();
+  bgGfx.rect(-50000, -50000, 100000, 100000).fill({ color: 0x000000, alpha: 0 });
+  bgGfx.eventMode = 'static';
+  viewport.addChildAt(bgGfx, 0);
+  bgGfx.on('pointerdown', onBgPointerDown);
+
+  lassoGfx = new Graphics();
+  viewport.addChild(lassoGfx);
+
+  app.stage.on('pointermove', onStagePointerMove);
+  app.stage.on('pointerup', onStagePointerUp);
+  app.stage.on('pointerupoutside', onStagePointerUp);
+
   const pixiEmit = (event: string, ...args: unknown[]) => {
     if (event === 'dragEnd') {
       const [plantId, pos] = args as [string, { x: number; y: number }];
@@ -77,7 +98,7 @@ onMounted(async () => {
     }
   };
 
-  renderer = new PixiRenderer(app, pixiEmit);
+  renderer = new PixiRenderer(viewport, pixiEmit);
   await renderer.init();
   renderer.syncPlants(props.plants);
   renderer.syncBeds(props.beds);
@@ -85,33 +106,11 @@ onMounted(async () => {
 
   app.ticker.maxFPS = 60;
 
-  // Lasso graphics layer — drawn above everything else
-  lassoGfx = new Graphics();
-  app.stage.addChild(lassoGfx);
-
-  // Transparent background quad for lasso/deselect clicks.
-  // Must be in world space (child of stage) so it's below plants in z-order.
-  // The stage hitArea approach breaks after stage.scale changes because hitArea
-  // is tested in local (world) space, not screen space.
-  const bgGfx = new Graphics();
-  bgGfx.rect(-50000, -50000, 100000, 100000).fill({ color: 0x000000, alpha: 0 });
-  bgGfx.eventMode = 'static';
-  app.stage.addChildAt(bgGfx, 0); // index 0 = below renderer layers
-  bgGfx.on('pointerdown', onStagePointerDown);
-
-  // Stage receives pointermove/pointerup globally for lasso draw and space-pan.
-  // No hitArea needed — children's events bubble up.
-  app.stage.eventMode = 'static';
-  app.stage.on('pointermove', onStagePointerMove);
-  app.stage.on('pointerup', onStagePointerUp);
-  app.stage.on('pointerupoutside', onStagePointerUp);
-
-  app.stage.scale.set(0.3);
-  app.stage.position.set(-20, -20);
+  // Initial camera: zoom to show full page
+  viewport.setZoom(0.3, true);
+  viewport.moveCorner(0, 0);
 
   window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  canvasEl.value?.addEventListener('pointerdown', onCanvasPointerDown);
 
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
@@ -122,21 +121,18 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('pointermove', onM3PanMove);
-  window.removeEventListener('pointerup', onM3PanEnd);
   window.removeEventListener('keydown', onKeyDown);
-  window.removeEventListener('keyup', onKeyUp);
-  canvasEl.value?.removeEventListener('pointerdown', onCanvasPointerDown);
   app?.destroy(true);
   app = null;
+  viewport = null;
   renderer = null;
 });
 
 // ------- Exposed API -------
 function setCamera({ x, y, z }: { x: number; y: number; z: number }): void {
-  if (!app) return;
-  app.stage.scale.set(z);
-  app.stage.position.set(x, y);
+  if (!viewport) return;
+  viewport.setZoom(z, true);
+  viewport.moveCorner(-x / z, -y / z);
 }
 
 function getShapeCount(): number {
@@ -151,160 +147,58 @@ function setBackgroundVisible(visible: boolean): void {
   renderer?.setBackgroundVisible(visible);
 }
 
-// ------- Space key -------
+// ------- Keys -------
 function onKeyDown(e: KeyboardEvent): void {
-  if (e.code === 'Space' && !e.repeat) {
-    spaceHeld = true;
-    if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
-    e.preventDefault();
-  }
-  if (e.code === 'Escape') {
-    emit('select', null);
-  }
+  if (e.code === 'Escape') emit('select', null);
+  if (e.code === 'Space') e.preventDefault();
 }
 
-function onKeyUp(e: KeyboardEvent): void {
-  if (e.code === 'Space') {
-    spaceHeld = false;
-    if (canvasEl.value) canvasEl.value.style.cursor = '';
-  }
-}
-
-// ------- M3 pan -------
-function onCanvasPointerDown(e: PointerEvent): void {
-  if (e.button !== 1) return;
-  e.preventDefault();
-  m3Panning = true;
-  m3PanStart = { x: e.clientX, y: e.clientY };
-  m3PanOrigin = { x: app!.stage.position.x, y: app!.stage.position.y };
-  if (canvasEl.value) canvasEl.value.style.cursor = 'grabbing';
-  window.addEventListener('pointermove', onM3PanMove);
-  window.addEventListener('pointerup', onM3PanEnd);
-}
-
-function onM3PanMove(e: PointerEvent): void {
-  if (!m3Panning || !app) return;
-  const s = props.panSensitivity ?? 1.0;
-  app.stage.position.set(
-    m3PanOrigin.x + (e.clientX - m3PanStart.x) * s,
-    m3PanOrigin.y + (e.clientY - m3PanStart.y) * s,
-  );
-}
-
-function onM3PanEnd(e: PointerEvent): void {
-  if (e.button !== 1) return;
-  m3Panning = false;
-  if (canvasEl.value) canvasEl.value.style.cursor = spaceHeld ? 'grab' : '';
-  window.removeEventListener('pointermove', onM3PanMove);
-  window.removeEventListener('pointerup', onM3PanEnd);
-}
-
-// ------- Zoom -------
-function onWheel(e: WheelEvent): void {
-  e.preventDefault();
-  if (!app) return;
-  const z = props.zoomSensitivity ?? 1.0;
-  const oldZ = app.stage.scale.x;
-  const delta = e.ctrlKey
-    ? e.deltaY * 0.01  // trackpad pinch — coarser
-    : (e.deltaY !== 0 ? e.deltaY : -e.deltaX) * 0.001;
-  const newZ = Math.max(0.05, Math.min(10, oldZ * (1 - delta * z)));
-  app.stage.position.x = e.offsetX + (app.stage.position.x - e.offsetX) * (newZ / oldZ);
-  app.stage.position.y = e.offsetY + (app.stage.position.y - e.offsetY) * (newZ / oldZ);
-  app.stage.scale.set(newZ);
-}
-
-// ------- Stage pointer: lasso or space-pan -------
-function onStagePointerDown(e: any): void {
-  if (!app) return;
-  if (e.button === 1) return; // M3 handled separately
-
-  if (spaceHeld) {
-    // Space + drag = pan
-    spacePanning = true;
-    spacePanStart = { x: e.global.x, y: e.global.y };
-    spacePanOrigin = { x: app.stage.position.x, y: app.stage.position.y };
-    if (canvasEl.value) canvasEl.value.style.cursor = 'grabbing';
-    return;
-  }
-
-  // Deselect on background click (plant pointerdown stops propagation)
+// ------- Background click / lasso -------
+function onBgPointerDown(e: any): void {
+  if (!viewport) return;
+  viewport.plugins.pause('drag');
   emit('select', null);
-
-  // Start lasso
   isLasso = true;
   lassoStartWorld = screenToWorld(e.global.x, e.global.y);
   lassoCurrentWorld = { ...lassoStartWorld };
 }
 
 function onStagePointerMove(e: any): void {
-  if (!app) return;
-
-  if (spacePanning) {
-    const s = props.panSensitivity ?? 1.0;
-    app.stage.position.set(
-      spacePanOrigin.x + (e.global.x - spacePanStart.x) * s,
-      spacePanOrigin.y + (e.global.y - spacePanStart.y) * s,
-    );
-    return;
-  }
-
-  if (isLasso && lassoGfx) {
-    lassoCurrentWorld = screenToWorld(e.global.x, e.global.y);
-    const lx = Math.min(lassoStartWorld.x, lassoCurrentWorld.x);
-    const ly = Math.min(lassoStartWorld.y, lassoCurrentWorld.y);
-    const lw = Math.abs(lassoCurrentWorld.x - lassoStartWorld.x);
-    const lh = Math.abs(lassoCurrentWorld.y - lassoStartWorld.y);
-    lassoGfx.clear();
-    if (lw > DRAG_THRESHOLD_PX || lh > DRAG_THRESHOLD_PX) {
-      lassoGfx.rect(lx, ly, lw, lh);
-      lassoGfx.fill({ color: 0x0070e0, alpha: 0.1 });
-      lassoGfx.rect(lx, ly, lw, lh);
-      lassoGfx.stroke({ color: 0x0070e0, width: 1 / (app.stage.scale.x) });
-    }
+  if (!isLasso || !lassoGfx || !viewport) return;
+  lassoCurrentWorld = screenToWorld(e.global.x, e.global.y);
+  const lx = Math.min(lassoStartWorld.x, lassoCurrentWorld.x);
+  const ly = Math.min(lassoStartWorld.y, lassoCurrentWorld.y);
+  const lw = Math.abs(lassoCurrentWorld.x - lassoStartWorld.x);
+  const lh = Math.abs(lassoCurrentWorld.y - lassoStartWorld.y);
+  lassoGfx.clear();
+  if (lw > DRAG_THRESHOLD_PX || lh > DRAG_THRESHOLD_PX) {
+    lassoGfx.rect(lx, ly, lw, lh).fill({ color: 0x0070e0, alpha: 0.1 });
+    lassoGfx.rect(lx, ly, lw, lh).stroke({ color: 0x0070e0, width: 1 / viewport.scale.x });
   }
 }
 
 function onStagePointerUp(): void {
-  spacePanning = false;
-  if (canvasEl.value && !spaceHeld) canvasEl.value.style.cursor = '';
-
-  if (isLasso) {
-    isLasso = false;
-    lassoGfx?.clear();
-    const lx = Math.min(lassoStartWorld.x, lassoCurrentWorld.x);
-    const rx = Math.max(lassoStartWorld.x, lassoCurrentWorld.x);
-    const ly = Math.min(lassoStartWorld.y, lassoCurrentWorld.y);
-    const ry = Math.max(lassoStartWorld.y, lassoCurrentWorld.y);
-    const moved = (rx - lx) > DRAG_THRESHOLD_PX || (ry - ly) > DRAG_THRESHOLD_PX;
-    if (moved) {
-      // Pass lasso bounds to renderer — it emits select for each plant inside
-      renderer?.selectByLasso(lx, ly, rx, ry);
-    }
+  if (!isLasso) return;
+  viewport?.plugins.resume('drag');
+  isLasso = false;
+  lassoGfx?.clear();
+  const lx = Math.min(lassoStartWorld.x, lassoCurrentWorld.x);
+  const rx = Math.max(lassoStartWorld.x, lassoCurrentWorld.x);
+  const ly = Math.min(lassoStartWorld.y, lassoCurrentWorld.y);
+  const ry = Math.max(lassoStartWorld.y, lassoCurrentWorld.y);
+  if ((rx - lx) > DRAG_THRESHOLD_PX || (ry - ly) > DRAG_THRESHOLD_PX) {
+    renderer?.selectByLasso(lx, ly, rx, ry);
   }
 }
 
 // ------- Reactive prop watches -------
-watch(
-  () => props.plants,
-  (plants) => renderer?.syncPlants(plants),
-  { deep: false },
-);
-
-watch(
-  () => props.beds,
-  (beds) => renderer?.syncBeds(beds),
-  { deep: false },
-);
-
-watch(
-  () => props.selectedId,
-  (id) => renderer?.setSelected(id ?? null),
-);
+watch(() => props.plants, (plants) => renderer?.syncPlants(plants), { deep: false });
+watch(() => props.beds, (beds) => renderer?.syncBeds(beds), { deep: false });
+watch(() => props.selectedId, (id) => renderer?.setSelected(id ?? null));
 </script>
 
 <template>
   <div ref="containerEl" style="width: 100%; height: 100%; position: relative">
-    <canvas ref="canvasEl" style="width: 100%; height: 100%" @wheel.prevent="onWheel" />
+    <canvas ref="canvasEl" style="width: 100%; height: 100%" />
   </div>
 </template>

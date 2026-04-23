@@ -44,12 +44,23 @@ Show different representations at different zoom levels. Plants at very low zoom
 - Also: RAPID destroys feature display objects after 20 frames of not being visible — we should consider this for large plant counts
 
 ### 3. Bed fill / auto-scatter
-Place plants inside a bed automatically in a natural scatter pattern, respecting a user-defined species mix (e.g. 60% Live Oak / 40% Muhly Grass).
-- Input: bed shape + species mix percentages + plant spacing
-- Output: real plant entities written to the store (same as manually placed plants)
-- Algorithm: Poisson disk sampling inside the bed polygon is the standard approach — produces natural-looking spacing without grid artifacts
-- Open questions: how to handle irregular bed shapes (ray-cast containment test); how to let the user re-scatter without losing manual edits; what the UI looks like (a "Fill bed" button in the Inspector?)
-- This is a differentiating feature — nothing like it in general drawing tools
+Place plants inside a bed automatically, respecting a species mix (e.g. 60% Live Oak / 40% Muhly Grass). Two modes: natural scatter + formal grid.
+
+**Algorithm research complete (2026-04-22).** Recommended stack:
+- `fast-2d-poisson-disk-sampling` — Bridson algorithm, 2D-optimized, takes bounding box + rejection fn
+- `honeycomb-grid` — hex + rotated rectangular lattice for formal grid mode
+- `@turf/boolean-point-in-polygon` — robust PIP; check `GraphicsContext.containsPoint()` first (may avoid the dep)
+- `bezier-js` — flatten bezier bed boundary to polygon for PIP
+- `simplex-noise` — spatially correlated species assignment (produces natural drifts/clusters, not salt-and-pepper)
+
+**Key decisions:**
+- Two placement modes: **Natural** (Poisson disk) and **Grid** (hex or rectangular lattice). User picks.
+- Species assignment: weighted random draw via cumulative-weight method (O(log n)). Use simplex noise field to make same-species plants cluster together in drifts.
+- Containment: flatten bezier bed → polygon, then PIP filter candidate points. Bounding box pre-check for speed.
+- Offload to Web Worker to avoid blocking main thread on large beds.
+- Output: `{ id, position: {x, y}, speciesId }[]` written to docStore — same shape as manually placed plants.
+
+**Not building yet.** Come back after LOD + label collision are spiked.
 
 ### 4. SVG export / canvas → print
 **Architecture decided — no longer a blocker.** Reconstruct from Pinia store at export time.
