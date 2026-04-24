@@ -107,6 +107,9 @@ function circleEdgePoint(center: Pt, radius: number, from: Pt): Pt {
 
 const canvasEl = ref<HTMLCanvasElement>();
 const statusMsg = ref('Drag the label. The leader line redraws live.');
+const leaderVisible = ref(true);
+const labelOffsetX = ref(PLANT_RADIUS + 50);
+const labelOffsetY = ref(0);
 
 let app = markRaw({} as Application);
 
@@ -247,6 +250,7 @@ onMounted(async () => {
     const dy = labelEdgePt.y - circleEdgePt.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    leaderVisible.value = !labelInsideCircle && dist > NEARNESS_THRESHOLD;
     if (!labelInsideCircle && dist > NEARNESS_THRESHOLD) {
       const arrowLen = STROKE_WIDTH * ARROW_LENGTH_FACTOR;
       const drawArrow = dist > arrowLen * 2;
@@ -312,6 +316,8 @@ onMounted(async () => {
     const dx = (e.global.x - labelDragStart.x) / z;
     const dy = (e.global.y - labelDragStart.y) / z;
     labelText.position.set(labelPosStart.x + dx, labelPosStart.y + dy);
+    labelOffsetX.value = labelText.x;
+    labelOffsetY.value = labelText.y;
     redrawLeader();
   });
 
@@ -357,9 +363,24 @@ onMounted(async () => {
     labelDragging = false;
     plantDragging = false;
   });
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'leader-line',
+      getSnapshot: () => ({
+        leaderVisible: leaderVisible.value,
+        labelOffsetX: labelOffsetX.value,
+        labelOffsetY: labelOffsetY.value,
+        statusMsg: statusMsg.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.destroy(true, { children: true, texture: true, context: true });
 });
 </script>

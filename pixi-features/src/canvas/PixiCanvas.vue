@@ -3,6 +3,8 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { Application, Graphics } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { PixiRenderer } from './PixiRenderer';
+import { useDocStore } from '@/stores/docStore';
+import { useSelectionStore } from '@/stores/selectionStore';
 import type { Plant, Bed } from '@/stores/docStore';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -26,6 +28,9 @@ defineExpose({ setCamera, getShapeCount, setTickerMaxFPS, setBackgroundVisible }
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const containerEl = ref<HTMLDivElement | null>(null);
+
+const docStore = useDocStore();
+const selectionStore = useSelectionStore();
 
 let app: Application | null = null;
 let viewport: Viewport | null = null;
@@ -123,6 +128,19 @@ onMounted(async () => {
 
   window.addEventListener('keydown', onKeyDown);
 
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'plant-renderer',
+      getSnapshot: () => ({
+        plantCount: docStore.plants.size,
+        bedCount: docStore.beds.size,
+        selectedCount: selectionStore.selectedIds.size,
+        zoom: viewport ? viewport.scale.x : 0,
+      }),
+    })
+  }
+
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       const appStart = (window as unknown as { __APP_START__?: number }).__APP_START__;
@@ -132,6 +150,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   window.removeEventListener('keydown', onKeyDown);
   app?.destroy(true);
   app = null;

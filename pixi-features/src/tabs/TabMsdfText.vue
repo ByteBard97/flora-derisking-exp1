@@ -25,6 +25,7 @@ const canvasEl = ref<HTMLCanvasElement>();
 const containerEl = ref<HTMLDivElement>();
 const statusMsg = ref<string>('Loading MSDF font…');
 const zoomLevel = ref(1);
+const fontLoaded = ref(false);
 
 let app: Application | null = null;
 
@@ -58,6 +59,7 @@ onMounted(async () => {
   // Load MSDF font
   try {
     await Assets.load(FONT_PATH);
+    fontLoaded.value = true;
     statusMsg.value = `MSDF font loaded — ${LABEL_COUNT} labels at mixed sizes`;
   } catch (e) {
     statusMsg.value = `ERROR loading font: ${e}`;
@@ -89,9 +91,24 @@ onMounted(async () => {
     label.y = Math.random() * WORLD_H;
     world.addChild(label);
   }
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'msdf-text',
+      getSnapshot: () => ({
+        fontLoaded: fontLoaded.value,
+        labelCount: LABEL_COUNT,
+        zoomLevel: zoomLevel.value,
+        statusMsg: statusMsg.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.destroy(true);
   app = null;
 });

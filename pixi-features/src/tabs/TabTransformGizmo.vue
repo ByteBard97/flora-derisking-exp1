@@ -308,6 +308,22 @@ onMounted(async () => {
 
   app.ticker.add(onTick);
 
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'transform-gizmo',
+      getSnapshot: () => ({
+        x: obj.x,
+        y: obj.y,
+        width: Math.round(obj.w * obj.scaleX),
+        height: Math.round(obj.h * obj.scaleY),
+        rotation: obj.rotation,
+        scaleX: obj.scaleX,
+        scaleY: obj.scaleY,
+      }),
+    })
+  }
+
   canvas.addEventListener('pointerdown', onPD);
   canvas.addEventListener('pointermove', onPM);
   canvas.addEventListener('pointerup', onPU);
@@ -318,6 +334,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   const canvas = canvasEl.value;
   canvas?.removeEventListener('pointerdown', onPD);
   canvas?.removeEventListener('pointermove', onPM);
