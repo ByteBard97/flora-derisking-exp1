@@ -20,6 +20,8 @@ let liveGfx = markRaw({} as Graphics);
 
 let currentPoints: [number, number, number][] = [];
 let drawing = false;
+const strokeCount = ref(0);
+const lastStrokePointCount = ref(0);
 
 function getFreehandOpts() {
   return {
@@ -73,8 +75,10 @@ function onPM(e: PointerEvent) {
 function onPU() {
   if (!drawing) return;
   drawing = false;
+  lastStrokePointCount.value = currentPoints.length;
   renderStrokeToGfx(liveGfx, currentPoints);
   burnToTexture();
+  strokeCount.value++;
   currentPoints = [];
 }
 
@@ -106,9 +110,23 @@ onMounted(async () => {
   canvas.addEventListener('pointermove', onPM);
   canvas.addEventListener('pointerup', onPU);
   canvas.addEventListener('pointercancel', onPU);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'freehand',
+      getSnapshot: () => ({
+        drawing,
+        strokeCount: strokeCount.value,
+        lastStrokePointCount: lastStrokePointCount.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   canvasEl.value?.removeEventListener('pointerdown', onPD);
   canvasEl.value?.removeEventListener('pointermove', onPM);
   canvasEl.value?.removeEventListener('pointerup', onPU);

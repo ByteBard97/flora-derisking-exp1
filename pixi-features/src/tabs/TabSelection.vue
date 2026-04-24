@@ -235,10 +235,24 @@ onMounted(async () => {
 
   spawnShapes(shapeCount.value);
 
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'selection',
+      getSnapshot: () => ({
+        selectedCount: selectedIds.value.size,
+        shapeCount: shapes.length,
+        selectedIdsList: [...selectedIds.value],
+      }),
+    })
+  }
+
   canvas.addEventListener('wheel', onWheel, { passive: false });
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   canvasEl.value?.removeEventListener('wheel', onWheel);
   app?.destroy(true, { children: true, texture: true, context: true });
 });

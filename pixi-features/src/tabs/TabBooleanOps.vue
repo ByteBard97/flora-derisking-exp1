@@ -201,6 +201,19 @@ onMounted(async () => {
 
   runOp();
 
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'boolean-ops',
+      getSnapshot: () => ({
+        operation: op.value,
+        samplesPerSegment: flattenSamples.value,
+        hasResult: op.value !== 'none' && resultInfo.value.length > 0,
+        resultInfo: resultInfo.value,
+      }),
+    })
+  }
+
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('pointerdown', onPD);
   window.addEventListener('pointermove', onPM);
@@ -208,6 +221,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   canvasEl.value?.removeEventListener('wheel', onWheel);
   canvasEl.value?.removeEventListener('pointerdown', onPD);
   window.removeEventListener('pointermove', onPM);

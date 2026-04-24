@@ -212,10 +212,28 @@ onMounted(async () => {
   drawStatic();
   drawShape();
 
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'snapping',
+      getSnapshot: () => ({
+        snapActive: snapped !== null,
+        snapMode: snapInfo.value,
+        shapePosX: shapePos.x,
+        shapePosY: shapePos.y,
+        gridEnabled: snapModes.value.grid,
+        vertexEnabled: snapModes.value.vertex,
+        edgeEnabled: snapModes.value.edge,
+      }),
+    })
+  }
+
   canvas.addEventListener('wheel', onWheel, { passive: false });
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   canvasEl.value?.removeEventListener('wheel', onWheel);
   app?.destroy(true, { children: true, texture: true, context: true });
 });

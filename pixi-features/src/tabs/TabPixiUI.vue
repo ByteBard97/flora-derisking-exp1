@@ -170,9 +170,24 @@ onMounted(async () => {
       logContainer.addChild(t);
     });
   });
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'pixi-ui',
+      getSnapshot: () => ({
+        sliderValue: sliderValue.value,
+        checkboxChecked: checkValue.value,
+        lastEvent: eventLog.value[0] ?? null,
+        eventCount: eventLog.value.length,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.destroy(true, { children: true, texture: true, context: true });
 });
 </script>
