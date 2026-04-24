@@ -98,9 +98,24 @@ onMounted(async () => {
   buildScene(circleCount.value);
   viewport.fit();
   viewport.moveCenter(WORLD_W / 2, WORLD_H / 2);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'viewport',
+      getSnapshot: () => ({
+        zoom: viewport.scale.x,
+        camX: viewport.center.x,
+        camY: viewport.center.y,
+        circleCount: circleCount.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.destroy(true, { children: true, texture: true, context: true });
 });
 </script>

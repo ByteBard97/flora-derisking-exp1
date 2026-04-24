@@ -118,9 +118,24 @@ onMounted(async () => {
 
   drawObjects();
   app.ticker.add(onTick);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'marching-ants',
+      getSnapshot: () => ({
+        animating: true,
+        dashOffset,
+        rectCount: selectedRects.length,
+        speed: speed.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.ticker.remove(onTick);
   app?.destroy(true, { children: true, texture: true, context: true });
 });

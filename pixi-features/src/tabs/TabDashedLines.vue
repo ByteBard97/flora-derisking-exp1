@@ -67,9 +67,22 @@ onMounted(async () => {
   canvas.addEventListener('pointerdown', onPD);
   window.addEventListener('pointermove', onPM);
   window.addEventListener('pointerup', onPU);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'dashed-lines',
+      getSnapshot: () => ({
+        lineCount: LINES.length,
+        zoomLevel: zoom,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   canvasEl.value?.removeEventListener('wheel', onWheel);
   canvasEl.value?.removeEventListener('pointerdown', onPD);
   window.removeEventListener('pointermove', onPM);

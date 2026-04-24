@@ -86,9 +86,23 @@ onMounted(async () => {
   app.stage.addChild(divider, labelA, labelB, bitmapLayer, textLayer);
 
   buildScene(count.value);
+
+  if (import.meta.env.DEV) {
+    const { registerPixiBridge } = await import('pixi-bridge')
+    registerPixiBridge(app, {
+      tabName: 'bitmap-text',
+      getSnapshot: () => ({
+        bitmapLabelCount: bitmapLayer.children.length,
+        textLabelCount: textLayer.children.length,
+        zoomLevel: zoom.value,
+      }),
+    })
+  }
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined
+  window.__pixiTestBridgeReady = false
   app?.destroy(true, { children: true, texture: true, context: true });
 });
 </script>

@@ -4,6 +4,7 @@ import { ref, computed, defineAsyncComponent } from 'vue';
 const tabs = [
   { id: 'renderer',   label: 'Plant Renderer', comp: defineAsyncComponent(() => import('./tabs/TabPlantRenderer.vue')) },
   { id: 'leader',     label: 'Leader Line',    comp: defineAsyncComponent(() => import('./tabs/TabLeaderLine.vue')) },
+  { id: 'msdf',       label: 'MSDF Text',      comp: defineAsyncComponent(() => import('./tabs/TabMsdfText.vue')) },
   { id: 'pen',       label: 'Pen Tool',       comp: defineAsyncComponent(() => import('./tabs/TabPenTool.vue')) },
   { id: 'sel',       label: 'Selection',      comp: defineAsyncComponent(() => import('./tabs/TabSelection.vue')) },
   { id: 'snap',      label: 'Snapping',       comp: defineAsyncComponent(() => import('./tabs/TabSnapping.vue')) },
