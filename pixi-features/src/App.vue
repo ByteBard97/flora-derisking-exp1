@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue';
+import TodoPanel from './components/TodoPanel.vue';
 
 interface TabDef { id: string; label: string; comp: ReturnType<typeof defineAsyncComponent> }
 interface Group { label: string; tabs: TabDef[] }
@@ -57,6 +58,7 @@ const allTabs = groups.flatMap(g => g.tabs)
 const STORAGE_KEY = 'pixi-features-active'
 const active = ref(localStorage.getItem(STORAGE_KEY) ?? 'renderer')
 const panelOpen = ref(true)
+const todoOpen  = ref(false)
 
 const activeComp = computed(() => (allTabs.find(t => t.id === active.value) ?? allTabs[0]).comp)
 const activeLabel = computed(() => (allTabs.find(t => t.id === active.value) ?? allTabs[0]).label)
@@ -88,9 +90,19 @@ function select(id: string) {
     </aside>
 
     <div class="canvas-area">
-      <div class="tab-title">{{ activeLabel }}</div>
+      <div class="tab-title">
+        {{ activeLabel }}
+        <button class="todo-toggle" @click="todoOpen = !todoOpen" :class="{ active: todoOpen }" title="Toggle todo panel">
+          ☑
+        </button>
+      </div>
       <component :is="activeComp" />
     </div>
+
+    <!-- Todo panel — slides in from the right -->
+    <aside class="todo-aside" :class="{ open: todoOpen }">
+      <TodoPanel />
+    </aside>
   </div>
 </template>
 
@@ -192,6 +204,35 @@ function select(id: string) {
   background: #131313;
   border-bottom: 1px solid #1e1e1e;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.todo-toggle {
+  background: transparent;
+  border: none;
+  color: #444;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.todo-toggle:hover { color: #888; }
+.todo-toggle.active { color: #0070e0; }
+
+.todo-aside {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: width 0.15s, min-width 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+}
+.todo-aside.open {
+  width: 260px;
+  min-width: 260px;
+  opacity: 1;
 }
 
 .canvas-area > :not(.tab-title) {
