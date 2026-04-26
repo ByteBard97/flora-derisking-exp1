@@ -74,6 +74,9 @@ function select(id: string) {
     <button class="toggle-btn" @click="panelOpen = !panelOpen" :title="panelOpen ? 'Hide panel' : 'Show panel'">
       {{ panelOpen ? '◀' : '▶' }}
     </button>
+    <button class="todo-toggle-btn" @click="todoOpen = !todoOpen" :class="{ active: todoOpen }" title="Toggle todo">
+      ☑
+    </button>
 
     <aside class="panel" :class="{ closed: !panelOpen }">
       <div class="panel-header">Pixi.js v8 · Flora</div>
@@ -90,12 +93,7 @@ function select(id: string) {
     </aside>
 
     <div class="canvas-area">
-      <div class="tab-title">
-        {{ activeLabel }}
-        <button class="todo-toggle" @click="todoOpen = !todoOpen" :class="{ active: todoOpen }" title="Toggle todo panel">
-          ☑
-        </button>
-      </div>
+      <div class="tab-title">{{ activeLabel }}</div>
       <component :is="activeComp" />
     </div>
 
@@ -204,22 +202,26 @@ function select(id: string) {
   background: #131313;
   border-bottom: 1px solid #1e1e1e;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
-.todo-toggle {
-  background: transparent;
-  border: none;
-  color: #444;
+.todo-toggle-btn {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 100;
+  width: 24px;
+  height: 24px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #666;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 4px;
+  font-size: 13px;
   line-height: 1;
+  padding: 0;
 }
-.todo-toggle:hover { color: #888; }
-.todo-toggle.active { color: #0070e0; }
+.todo-toggle-btn:hover { color: #aaa; }
+.todo-toggle-btn.active { color: #0070e0; border-color: #0070e0; }
 
 .todo-aside {
   width: 0;
