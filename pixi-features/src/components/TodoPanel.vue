@@ -8,11 +8,69 @@ interface TodoItem {
   done: boolean;
 }
 
-const STORAGE_KEY = 'pixi-features-todo';
+const STORAGE_KEY = 'pixi-features-todo-v2';
+
+const DEFAULTS: Omit<TodoItem, 'id'>[] = [
+  {
+    title: 'Verify 5 unconfirmed tabs',
+    body: 'Browser crashed before we could screenshot these:\n• Marching Ants\n• Viewport\n• Transform Gizmo\n• Spatial Index\n• @pixi/ui\n\nOpen each one at localhost:5202 and make sure they load and interact correctly.',
+    done: false,
+  },
+  {
+    title: 'Rulers / measurement tool spike',
+    body: 'Need a TabRulers spike proving tick marks stay legible across 3 orders of zoom magnitude (0.05× to 10×).\n\nResearch prompt already written — check annie-reviews/notebooklm-video-prompt.md for the measurement tool section.\n\nRapiD reference: modules/core/MapSystem.js has zoom-stable tick logic.',
+    done: false,
+  },
+  {
+    title: 'Freehand auto-smooth quality check',
+    body: 'TabFreehand now shows the green fitted bezier overlay on pointer-up.\n\nQuality bar: draw a simple S-curve or bed boundary. The green path should look like what Illustrator produces with the pencil tool.\n\nTune fitError (currently 4) if curves cut corners too much (try 2) or are too jagged (try 8).',
+    done: false,
+  },
+  {
+    title: 'Layer lock/visibility spike',
+    body: 'Scene graph layer structure is decided (see ARCHITECTURE.md).\n\nNeed to prove: container.visible = false works cleanly, and container.interactiveChildren = false actually prevents pointer events on locked layers.\n\nRapiD steal: AbstractLayer.js + PixiScene.js (~400 lines total).',
+    done: false,
+  },
+  {
+    title: 'Bed fill algorithm spike',
+    body: 'Stack decided: fast-2d-poisson-disk-sampling + honeycomb-grid + bezier-js (flatten bed to polygon) + @turf/boolean-point-in-polygon + simplex-noise (species clustering).\n\nBuild a TabBedFill that: draws a closed bezier bed, fills it with Poisson disk scatter, then hex grid. Compare visually. Offload to Web Worker for beds with >500 plants.',
+    done: false,
+  },
+  {
+    title: 'planToSvg() — SVG export pure function',
+    body: 'Architecture decided, closed. See flora-studio/docs/svg-pdf-export-architecture.md.\n\nBuild as packages/plan-svg/planToSvg(store, opts): string — zero Pixi imports, zero DOM.\n\nMap: plants → <circle>+<use>, beds → graphicsContextToSvg(), labels → outlined paths, aerial → base64 <image>.\n\nServer-side: pipe through Inkscape CLI for PDF.',
+    done: false,
+  },
+  {
+    title: 'Plant library UI',
+    body: 'Pure Vue, no canvas risk. 300+ native Florida species, searchable by name, filterable by sun/water/soil/bloom/wildlife.\n\nfits flora-uxp already has Fuse.js for search — port it.\n\nDesign palette: named shortlists per project, stored per-user.',
+    done: false,
+  },
+  {
+    title: 'GIS site import integration',
+    body: 'Backend already exists (flora-backend). Coordinate pipeline already decided (Rapid viewport math).\n\nStep 1: type address → parcel boundary + aerial + soil zones appear on canvas as locked reference layers.\n\nflora-uxp steal: SitePlanImportService.ts, CoordinateOrchestrator.ts.',
+    done: false,
+  },
+  {
+    title: 'Annie review session — show her the canvas',
+    body: 'Show in this order:\n1. Plant Renderer — 300 plants, pan/zoom, click to select, drag to move\n2. Pen Tool — draw a bed shape, show corner/smooth anchors\n3. Freehand — sketch a bed, watch it auto-smooth\n4. Boolean Ops — merge two overlapping beds\n5. Measure tool — show distance and area readouts\n6. Knife Tool — split a bed into two zones\n\nKey message: everything Illustrator does for a landscape plan, Flora does faster and knows what the plants are.',
+    done: false,
+  },
+  {
+    title: 'Push NotebookLM assets to Geoff',
+    body: 'Files ready in:\n• derisking-experiments/annie-reviews/flora-story-for-notebooklm.md\n• derisking-experiments/annie-reviews/notebooklm-video-prompt.md\n\nUpload to NotebookLM along with:\n• flora-v2-design-brief.md\n• pixi-feature-audit.md\n• RISK-REGISTER.md',
+    done: false,
+  },
+];
 
 function load(): TodoItem[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+    // First load — seed with defaults
+    const seeded = DEFAULTS.map((d, i) => ({ ...d, id: i }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+    return seeded;
   } catch {
     return [];
   }
