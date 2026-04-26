@@ -13,6 +13,47 @@ const APP_START = performance.now();
 
 const containerRef = ref<HTMLDivElement | null>(null);
 
+// ── Performance stats ────────────────────────────────────────────────────────
+const perfFps     = ref(0);
+const perfFrameMs = ref(0);   // last frame time
+const perfP95Ms   = ref(0);   // p95 over last 120 frames
+const perfDrawMs  = ref(0);   // last Konva batchDraw() duration
+const perfHeapMb  = ref(0);   // JS heap (Chrome only)
+
+const _frameTimes: number[] = [];
+let _lastRaf = 0;
+let _rafCount = 0;
+let _rafWindowStart = 0;
+let _rafId = 0;
+
+function _perfLoop(now: number) {
+  _rafId = requestAnimationFrame(_perfLoop);
+  if (_lastRaf === 0) { _lastRaf = now; _rafWindowStart = now; return; }
+  const dt = now - _lastRaf;
+  _lastRaf = now;
+  _rafCount++;
+  perfFrameMs.value = Math.round(dt);
+  _frameTimes.push(dt);
+  if (_frameTimes.length > 120) _frameTimes.shift();
+  if (now - _rafWindowStart >= 1000) {
+    perfFps.value = Math.round(_rafCount * 1000 / (now - _rafWindowStart));
+    _rafCount = 0;
+    _rafWindowStart = now;
+    const sorted = [..._frameTimes].sort((a, b) => a - b);
+    perfP95Ms.value = Math.round(sorted[Math.floor(sorted.length * 0.95)] ?? 0);
+    const mem = (performance as any).memory;
+    if (mem) perfHeapMb.value = Math.round(mem.usedJSHeapSize / 1024 / 1024);
+  }
+}
+
+// Wraps layer.batchDraw() and records how long Konva's Canvas2D paint takes.
+function timedDraw(layer: Konva.Layer | null) {
+  if (!layer) return;
+  const t0 = performance.now();
+  layer.batchDraw();
+  perfDrawMs.value = Math.round(performance.now() - t0);
+}
+
 const docStore = useDocStore();
 const viewportStore = useViewportStore();
 const selectionStore = useSelectionStore();
@@ -47,18 +88,20 @@ const BG_H = LOT_HEIGHT_INCHES * PX_PER_INCH;
 function loadBackground(worldGroup: Konva.Group, layer: Konva.Layer): void {
   const img = new Image();
   img.onload = () => {
+    // Preserve natural aspect ratio — site plan is landscape letter (11"×8.5")
+    const bgH = img.naturalWidth > 0 ? BG_W * (img.naturalHeight / img.naturalWidth) : BG_H;
     worldGroup.add(new Konva.Image({
       image: img,
       x: 0, y: 0,
-      width: BG_W, height: BG_H,
+      width: BG_W, height: bgH,
       listening: false,
     }));
-    layer.batchDraw();
+    timedDraw(layer);
   };
   img.onerror = () => {
     console.warn('[Exp1] site-plan.svg failed to load — falling back to solid fill');
     worldGroup.add(new Konva.Rect({ x: 0, y: 0, width: BG_W, height: BG_H, fill: '#2a3a2a' }));
-    layer.batchDraw();
+    timedDraw(layer);
   };
   img.src = '/site-plan.svg';
 }
@@ -110,6 +153,7 @@ onMounted(async () => {
   bgWorld!.scale({ x: viewportStore.zoom, y: viewportStore.zoom });
   bgWorld!.position({ x: viewportStore.panX, y: viewportStore.panY });
   ttiMs.value = performance.now() - APP_START;
+  _rafId = requestAnimationFrame(_perfLoop);
 
   // Dev/test hooks — Playwright reads these to verify measurements without human eyes.
   if (import.meta.env.DEV) {
@@ -206,7 +250,7 @@ function handleSelect(plantId: string): void {
   const node = projection?.getNodeForPlant(plantId);
   if (node && transformer) {
     transformer.nodes([node]);
-    plantLayer?.batchDraw();
+    timedDraw(plantLayer);
   }
 }
 
@@ -239,7 +283,7 @@ watch(
     if (bgWorld) {
       bgWorld.scale({ x: zoom, y: zoom });
       bgWorld.position({ x: panX, y: panY });
-      backgroundLayer?.batchDraw();
+      timedDraw(backgroundLayer);
     }
   },
 );
@@ -255,6 +299,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(_rafId);
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
   stage?.destroy();
@@ -283,6 +328,18 @@ onBeforeUnmount(() => {
       <div data-testid="stat-zoom">Zoom: {{ (viewportStore.zoom * 100).toFixed(0) }}%</div>
       <div data-testid="stat-selected">Selected: {{ selectionStore.selectedPlantId ?? 'none' }}</div>
       <div data-testid="stat-undo-stack">Undo stack: {{ docStore.undoStack.length }}/10</div>
+
+      <div style="margin-top: 8px; border-top: 1px solid #444; padding-top: 6px;">
+        <div style="color: #fa0; font-size: 11px; margin-bottom: 4px;">⬛ Konva · Canvas2D (CPU-only)</div>
+        <div data-testid="stat-fps" style="font-size: 15px; font-weight: bold;">
+          {{ perfFps }} <span style="font-size: 11px; color: #0a0;">fps</span>
+        </div>
+        <div>frame: {{ perfFrameMs }} ms &nbsp; p95: {{ perfP95Ms }} ms</div>
+        <div>draw call: {{ perfDrawMs }} ms</div>
+        <div v-if="perfHeapMb > 0">heap: {{ perfHeapMb }} MB</div>
+        <div style="color: #777; font-size: 10px; margin-top: 3px;">CPU/GPU %: not available from JS</div>
+      </div>
+
       <div style="margin-top: 6px; color: #aaa; font-size: 11px;">
         Pinch: zoom &nbsp; 2-finger scroll: pan &nbsp; Cmd+Z: undo
       </div>

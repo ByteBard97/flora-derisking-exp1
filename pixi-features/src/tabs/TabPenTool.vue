@@ -54,6 +54,7 @@ const snapInfo = ref('');
 // ── Pixi objects (markRaw, never in Vue reactivity) ────────────────────────
 const canvasEl = ref<HTMLCanvasElement>();
 let app = markRaw({} as Application);
+let worldLayer   = markRaw({} as Container);
 let committedGfx = markRaw({} as Graphics);
 let previewGfx   = markRaw({} as Graphics);
 let handleLineGfx = markRaw({} as Graphics);
@@ -335,7 +336,10 @@ function applyDrag(altHeld: boolean) {
     const delta = { x: cursor.x - node.x, y: cursor.y - node.y };
     if (isOut) {
       node.handleOut = delta;
-      if (!altHeld && node.type !== 'corner') {
+      if (!altHeld) {
+        // Promote corner→smooth on first creation drag (Illustrator behaviour).
+        // Existing corners stay corner only if alt is held.
+        if (node.type === 'corner') node.type = 'smooth';
         const len = Math.hypot(delta.x, delta.y);
         const u = { x: delta.x / len, y: delta.y / len };
         if (node.type === 'smooth') {
@@ -400,6 +404,7 @@ function onStagePointerDown(e: any) {
 
   rebuildCommitted();
   rebuildHandles();
+  dirty = true;
 }
 
 function onStagePointerMove(e: any) {
@@ -440,8 +445,8 @@ function onWheel(e: WheelEvent) {
   zoom = Math.max(0.05, Math.min(50, zoom * factor));
   camX = sx - wx * zoom;
   camY = sy - wy * zoom;
-  app.stage.position.set(camX, camY);
-  app.stage.scale.set(zoom);
+  worldLayer.position.set(camX, camY);
+  worldLayer.scale.set(zoom);
   // Scale handle dots inversely so they stay at fixed screen size
   const s = 1 / zoom;
   anchorsLayer.children.forEach(c => (c as Graphics).scale.set(s));
@@ -489,7 +494,7 @@ function onWindowPointerMove(e: PointerEvent) {
   if (!isPanning) return;
   camX = e.clientX - panStart.x;
   camY = e.clientY - panStart.y;
-  app.stage.position.set(camX, camY);
+  worldLayer.position.set(camX, camY);
 }
 function onWindowPointerUp() { isPanning = false; }
 
@@ -509,7 +514,7 @@ onMounted(async () => {
   buildContextTemplates();
 
   // Scene graph: worldLayer contains all world-space objects
-  const worldLayer = markRaw(new Container());
+  worldLayer = markRaw(new Container());
   worldLayer.position.set(camX, camY);
   app.stage.addChild(worldLayer);
 
@@ -536,15 +541,16 @@ onMounted(async () => {
   handlesLayer  = markRaw(new Container());
 
   // eventMode: drawing layer passive so handle children capture events
-  committedGfx.eventMode = 'none';
+  committedGfx.eventMode  = 'none';
+  previewGfx.eventMode    = 'none';
   handleLineGfx.eventMode = 'none';
 
   worldLayer.addChild(committedGfx, previewGfx, handleLineGfx, handlesLayer, anchorsLayer);
 
-  // Stage background catches pointerdown for anchor placement
+  // Stage background catches pointerdown for anchor placement.
+  // hitArea is explicit so transparent fill is always hittable in Pixi v8.
   const bg = markRaw(new Graphics());
-  bg.setFillStyle({ color: 0x000000, alpha: 0 });
-  bg.rect(-5000, -5000, 10000, 10000).fill();
+  bg.hitArea = new Rectangle(-5000, -5000, 10000, 10000);
   bg.eventMode = 'static';
   bg.on('pointerdown', onStagePointerDown);
   worldLayer.addChildAt(bg, 0);
@@ -583,6 +589,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.__pixiTestBridge = undefined;
+  window.__pixiTestBridgeReady = false;
   canvasEl.value?.removeEventListener('wheel', onWheel);
   canvasEl.value?.removeEventListener('pointerdown', onCanvasPointerDown);
   window.removeEventListener('pointermove', onWindowPointerMove);

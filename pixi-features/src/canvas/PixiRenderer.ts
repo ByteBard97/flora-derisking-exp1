@@ -26,7 +26,7 @@ const ARROW_HALF_WIDTH_FACTOR = 3;
 
 // LOD thresholds — tuned empirically for 300 plants
 const LOD_INVISIBLE = 0.05;  // zoom below this: container hidden
-const LOD_SIMPLE    = 0.15;  // zoom below this: circle only (no sprite/label/leader)
+const LOD_SIMPLE    = LOD_INVISIBLE;  // lod1 (circle-only) disabled — re-enable with real perf data
 
 const SPECIES_COLORS: Record<string, number> = {
   oak: 0x4a7c59,
