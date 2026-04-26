@@ -1,58 +1,201 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue';
 
-const tabs = [
-  { id: 'renderer',   label: 'Plant Renderer', comp: defineAsyncComponent(() => import('./tabs/TabPlantRenderer.vue')) },
-  { id: 'leader',     label: 'Leader Line',    comp: defineAsyncComponent(() => import('./tabs/TabLeaderLine.vue')) },
-  { id: 'msdf',       label: 'MSDF Text',      comp: defineAsyncComponent(() => import('./tabs/TabMsdfText.vue')) },
-  { id: 'pen',       label: 'Pen Tool',       comp: defineAsyncComponent(() => import('./tabs/TabPenTool.vue')) },
-  { id: 'sel',       label: 'Selection',      comp: defineAsyncComponent(() => import('./tabs/TabSelection.vue')) },
-  { id: 'snap',      label: 'Snapping',       comp: defineAsyncComponent(() => import('./tabs/TabSnapping.vue')) },
-  { id: 'dash',      label: 'Dashed Lines',   comp: defineAsyncComponent(() => import('./tabs/TabDashedLines.vue')) },
-  { id: 'bool',      label: 'Boolean Ops',    comp: defineAsyncComponent(() => import('./tabs/TabBooleanOps.vue')) },
-  { id: 'freehand',  label: 'Freehand',       comp: defineAsyncComponent(() => import('./tabs/TabFreehand.vue')) },
-  { id: 'bitmap',    label: 'BitmapText',     comp: defineAsyncComponent(() => import('./tabs/TabBitmapText.vue')) },
-  { id: 'ants',      label: 'Marching Ants',  comp: defineAsyncComponent(() => import('./tabs/TabMarchingAnts.vue')) },
-  { id: 'viewport',  label: 'Viewport',       comp: defineAsyncComponent(() => import('./tabs/TabViewport.vue')) },
-  { id: 'transform', label: 'Transform Gizmo',comp: defineAsyncComponent(() => import('./tabs/TabTransformGizmo.vue')) },
-  { id: 'spatial',   label: 'Spatial Index',  comp: defineAsyncComponent(() => import('./tabs/TabSpatialIndex.vue')) },
-  { id: 'pixiui',    label: '@pixi/ui',       comp: defineAsyncComponent(() => import('./tabs/TabPixiUI.vue')) },
-];
+interface TabDef { id: string; label: string; comp: ReturnType<typeof defineAsyncComponent> }
+interface Group { label: string; tabs: TabDef[] }
 
-const active = ref('pen');
-const activeComp = computed(() => tabs.find(t => t.id === active.value)!.comp);
+const A = (path: string) => defineAsyncComponent(() => import(path))
+
+const groups: Group[] = [
+  {
+    label: 'Rendering',
+    tabs: [
+      { id: 'renderer',    label: 'Plant Renderer',    comp: A('./tabs/TabPlantRenderer.vue') },
+      { id: 'leader',      label: 'Leader Line',       comp: A('./tabs/TabLeaderLine.vue') },
+      { id: 'msdf',        label: 'MSDF Text',         comp: A('./tabs/TabMsdfText.vue') },
+      { id: 'bitmap',      label: 'BitmapText',        comp: A('./tabs/TabBitmapText.vue') },
+    ],
+  },
+  {
+    label: 'Drawing Tools',
+    tabs: [
+      { id: 'pen',         label: 'Pen Tool',          comp: A('./tabs/TabPenTool.vue') },
+      { id: 'freehand',    label: 'Freehand',          comp: A('./tabs/TabFreehand.vue') },
+      { id: 'knife',       label: 'Knife Tool',        comp: A('./tabs/TabKnife.vue') },
+      { id: 'bool',        label: 'Boolean Ops',       comp: A('./tabs/TabBooleanOps.vue') },
+      { id: 'dash',        label: 'Dashed Lines',      comp: A('./tabs/TabDashedLines.vue') },
+    ],
+  },
+  {
+    label: 'Interaction',
+    tabs: [
+      { id: 'measure',     label: 'Measure',           comp: A('./tabs/TabMeasure.vue') },
+      { id: 'sel',         label: 'Selection',         comp: A('./tabs/TabSelection.vue') },
+      { id: 'snap',        label: 'Snapping',          comp: A('./tabs/TabSnapping.vue') },
+      { id: 'transform',   label: 'Transform Gizmo',   comp: A('./tabs/TabTransformGizmo.vue') },
+      { id: 'spatial',     label: 'Spatial Index',     comp: A('./tabs/TabSpatialIndex.vue') },
+      { id: 'ants',        label: 'Marching Ants',     comp: A('./tabs/TabMarchingAnts.vue') },
+    ],
+  },
+  {
+    label: 'Text & UI',
+    tabs: [
+      { id: 'textann',     label: 'Text Annotation',   comp: A('./tabs/TabTextAnnotation.vue') },
+      { id: 'pixiui',      label: '@pixi/ui',          comp: A('./tabs/TabPixiUI.vue') },
+    ],
+  },
+  {
+    label: 'Viewport',
+    tabs: [
+      { id: 'viewport',    label: 'Viewport',          comp: A('./tabs/TabViewport.vue') },
+    ],
+  },
+]
+
+const allTabs = groups.flatMap(g => g.tabs)
+
+const STORAGE_KEY = 'pixi-features-active'
+const active = ref(localStorage.getItem(STORAGE_KEY) ?? 'renderer')
+const panelOpen = ref(true)
+
+const activeComp = computed(() => (allTabs.find(t => t.id === active.value) ?? allTabs[0]).comp)
+const activeLabel = computed(() => (allTabs.find(t => t.id === active.value) ?? allTabs[0]).label)
+
+function select(id: string) {
+  active.value = id
+  localStorage.setItem(STORAGE_KEY, id)
+}
 </script>
 
 <template>
   <div class="shell">
-    <nav>
-      <button
-        v-for="t in tabs" :key="t.id"
-        :class="{ active: active === t.id }"
-        @click="active = t.id"
-      >{{ t.label }}</button>
-      <span class="subtitle">Pixi.js v8 · Flora Studio derisking</span>
-    </nav>
+    <button class="toggle-btn" @click="panelOpen = !panelOpen" :title="panelOpen ? 'Hide panel' : 'Show panel'">
+      {{ panelOpen ? '◀' : '▶' }}
+    </button>
+
+    <aside class="panel" :class="{ closed: !panelOpen }">
+      <div class="panel-header">Pixi.js v8 · Flora</div>
+      <nav class="panel-nav">
+        <div v-for="group in groups" :key="group.label" class="group">
+          <div class="group-label">{{ group.label }}</div>
+          <button
+            v-for="t in group.tabs" :key="t.id"
+            :class="{ active: active === t.id }"
+            @click="select(t.id)"
+          >{{ t.label }}</button>
+        </div>
+      </nav>
+    </aside>
+
     <div class="canvas-area">
+      <div class="tab-title">{{ activeLabel }}</div>
       <component :is="activeComp" />
     </div>
   </div>
 </template>
 
 <style scoped>
-.shell { display: flex; flex-direction: column; width: 100%; height: 100%; font-family: monospace; }
-nav {
-  display: flex; align-items: center; gap: 4px;
-  padding: 6px 10px; background: #1a1a1a;
-  border-bottom: 1px solid #333; flex-shrink: 0;
+.shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  font-family: monospace;
+  overflow: hidden;
+  background: #111;
 }
-button {
-  padding: 4px 14px; background: #2a2a2a; color: #888;
-  border: 1px solid #444; border-radius: 3px; cursor: pointer;
-  font-family: monospace; font-size: 12px; transition: background 0.1s;
+
+.toggle-btn {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  width: 24px;
+  height: 24px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #aaa;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
 }
-button.active { background: #0070e0; color: #fff; border-color: #0070e0; }
-button:hover:not(.active) { background: #333; color: #bbb; }
-.subtitle { margin-left: auto; font-size: 11px; color: #444; }
-.canvas-area { flex: 1; overflow: hidden; position: relative; }
+
+.panel {
+  width: 180px;
+  min-width: 180px;
+  background: #161616;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  transition: width 0.15s, min-width 0.15s, opacity 0.15s;
+  padding-top: 36px;
+}
+.panel.closed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.panel-header {
+  font-size: 10px;
+  color: #555;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid #222;
+  margin-bottom: 6px;
+}
+
+.panel-nav { padding: 4px 6px; }
+
+.group { margin-bottom: 12px; }
+.group-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #444;
+  padding: 2px 4px 4px;
+}
+
+.panel-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: #666;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-nav button:hover { background: #222; color: #aaa; }
+.panel-nav button.active { background: #0070e0; color: #fff; }
+
+.canvas-area {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-title {
+  font-size: 11px;
+  color: #333;
+  padding: 4px 10px;
+  background: #131313;
+  border-bottom: 1px solid #1e1e1e;
+  flex-shrink: 0;
+}
+
+.canvas-area > :not(.tab-title) {
+  flex: 1;
+  overflow: hidden;
+}
 </style>
