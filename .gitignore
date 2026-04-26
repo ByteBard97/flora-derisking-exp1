@@ -21,3 +21,10 @@ yarn-error.log*
 # editor state
 .idea/
 .vscode/settings.json
+
+# playwright session output
+.playwright-mcp/
+*.png
+
+# knowledge graph cache
+.knowledge-graph/
