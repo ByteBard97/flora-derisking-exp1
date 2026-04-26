@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, markRaw } from 'vue';
 import { Application, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import { getStroke } from 'perfect-freehand';
 import { useFps } from '../shared/useFps';
+import { fitBezierPath, drawFittedPath } from '../lib/pathFit';
 
 const { fps, frameMs } = useFps();
 const canvasEl = ref<HTMLCanvasElement>();
@@ -17,6 +18,9 @@ let app = markRaw({} as Application);
 let accTex: RenderTexture;
 let accSprite: Sprite;
 let liveGfx = markRaw({} as Graphics);
+let fittedGfx = markRaw({} as Graphics);
+const showFitted = ref(true);
+const lastSegmentCount = ref(0);
 
 let currentPoints: [number, number, number][] = [];
 let drawing = false;
@@ -79,6 +83,17 @@ function onPU() {
   renderStrokeToGfx(liveGfx, currentPoints);
   burnToTexture();
   strokeCount.value++;
+
+  if (showFitted.value && currentPoints.length >= 4) {
+    const pts = currentPoints.map(([x, y]) => ({ x, y }));
+    const segments = fitBezierPath(pts, 2.5, 4);
+    lastSegmentCount.value = segments.length;
+    drawFittedPath(fittedGfx, segments, 0x00ff88);
+  } else {
+    fittedGfx.clear();
+    lastSegmentCount.value = 0;
+  }
+
   currentPoints = [];
 }
 
@@ -103,8 +118,9 @@ onMounted(async () => {
   accSprite = markRaw(new Sprite(accTex));
   accSprite.scale.set(1 / devicePixelRatio);
   liveGfx = markRaw(new Graphics());
+  fittedGfx = markRaw(new Graphics());
 
-  app.stage.addChild(accSprite, liveGfx);
+  app.stage.addChild(accSprite, liveGfx, fittedGfx);
 
   canvas.addEventListener('pointerdown', onPD);
   canvas.addEventListener('pointermove', onPM);
@@ -149,6 +165,12 @@ onUnmounted(() => {
       <label>Smooth <input type="range" v-model.number="smoothing" min="0" max="1" step="0.05" style="width:80px" /> {{ smoothing.toFixed(2) }}</label>
       <label>Stream <input type="range" v-model.number="streamline" min="0" max="1" step="0.05" style="width:80px" /> {{ streamline.toFixed(2) }}</label>
       <button @click="app.renderer.clear({ clearColor: 0x111111, target: accTex })">Clear</button>
+      <label>
+        <input type="checkbox" v-model="showFitted" /> <span style="color:#00ff88">Show fitted bezier</span>
+      </label>
+      <div v-if="lastSegmentCount > 0" style="color:#00ff88;font-size:11px">
+        {{ lastSegmentCount }} bezier segment{{ lastSegmentCount === 1 ? '' : 's' }}
+      </div>
     </div>
     <div class="hint">Draw · strokes accumulate via RenderTexture · pen pressure supported</div>
   </div>
