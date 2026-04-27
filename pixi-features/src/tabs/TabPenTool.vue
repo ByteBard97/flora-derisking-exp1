@@ -97,29 +97,29 @@ function buildContextTemplates() {
   ctxAnchorCorner = markRaw(new GraphicsContext()
     .setStrokeStyle({ width: 1.5, color: 0x00aaff })
     .setFillStyle({ color: 0x1a1a2e })
-    .rect(-5, -5, 10, 10).fill().stroke());
+    .rect(-7, -7, 14, 14).fill().stroke());
 
   // Smooth/asymmetric anchor: hollow circle (has bezier handles)
   ctxAnchorSmooth = markRaw(new GraphicsContext()
     .setStrokeStyle({ width: 1.5, color: 0x00aaff })
     .setFillStyle({ color: 0x1a1a2e })
-    .circle(0, 0, 5).fill().stroke());
+    .circle(0, 0, 7).fill().stroke());
 
   // First anchor highlight while drawing (close-path affordance)
   ctxAnchorSelected = markRaw(new GraphicsContext()
     .setStrokeStyle({ width: 1.5, color: 0x00aaff })
     .setFillStyle({ color: 0x00aaff })
-    .rect(-5, -5, 10, 10).fill().stroke());
+    .rect(-7, -7, 14, 14).fill().stroke());
 
   ctxHandle = markRaw(new GraphicsContext()
     .setFillStyle({ color: 0xcc44cc })
-    .circle(0, 0, 4).fill()
+    .circle(0, 0, 6).fill()
     .setStrokeStyle({ width: 1, color: 0x884488 })
-    .circle(0, 0, 4).stroke());
+    .circle(0, 0, 6).stroke());
 
   ctxHandleActive = markRaw(new GraphicsContext()
     .setFillStyle({ color: 0xff88ff })
-    .circle(0, 0, 5).fill());
+    .circle(0, 0, 7).fill());
 }
 
 // ── Rebuild committed path ─────────────────────────────────────────────────
@@ -194,8 +194,9 @@ function rebuildHandles() {
       handleLineGfx.moveTo(x, y).lineTo(x + handleOut.x, y + handleOut.y).stroke();
       const hdot = markRaw(new Graphics(ctxHandle));
       hdot.position.set(x + handleOut.x, y + handleOut.y);
+      hdot.scale.set(1 / zoom);
       hdot.eventMode = 'static';
-      hdot.hitArea = new Rectangle(-7, -7, 14, 14);
+      hdot.hitArea = new Rectangle(-14, -14, 28, 28);
       hdot.cursor = 'crosshair';
       hdot.on('pointerdown', (e) => {
         e.stopPropagation();
@@ -210,8 +211,9 @@ function rebuildHandles() {
       handleLineGfx.moveTo(x, y).lineTo(x + handleIn.x, y + handleIn.y).stroke();
       const hdot = markRaw(new Graphics(ctxHandle));
       hdot.position.set(x + handleIn.x, y + handleIn.y);
+      hdot.scale.set(1 / zoom);
       hdot.eventMode = 'static';
-      hdot.hitArea = new Rectangle(-7, -7, 14, 14);
+      hdot.hitArea = new Rectangle(-14, -14, 28, 28);
       hdot.cursor = 'crosshair';
       hdot.on('pointerdown', (e) => {
         e.stopPropagation();
@@ -229,8 +231,9 @@ function rebuildHandles() {
     const dot = markRaw(new Graphics(anchorCtx));
     dot.label = `test:anchor-${i}`;
     dot.position.set(x, y);
+    dot.scale.set(1 / zoom);
     dot.eventMode = 'static';
-    dot.hitArea = new Rectangle(-8, -8, 16, 16);
+    dot.hitArea = new Rectangle(-16, -16, 32, 32);
     dot.cursor = isFirst && mode.value === 'drawing' && a.length > 1 ? 'cell' : 'grab';
     dot.on('pointerdown', (e) => {
       e.stopPropagation();
