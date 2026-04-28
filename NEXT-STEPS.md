@@ -44,8 +44,21 @@ Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb 
 
 Four research passes running in parallel. Wait for all four before starting any implementation.
 
-### Research pass 1 — Watercolor & wet media (alternate prompt sent)
-**Looking for:** Real-time GLSL implementations of pigment dispersion, edge bleed, paper grain, wash fills. ShaderToy IDs. Portability to Pixi v8 Filter.
+### Research pass 1 — Watercolor & wet media ✅ COMPLETE
+**File:** `flora-studio/docs/research/webgl-npr-watercolor.md`
+**Key findings:**
+- `markknol/wlGXRV` ShaderToy: 60 lines, sine/cosine UV iteration, no external textures — easiest starting point
+- `gracelgilbert/watercolor-stylization`: 800+ lines, requires depth map + ID textures — too complex for 2D Pixi, skip it
+- **Working Pixi v8 `Filter.from()` GLSL ES 3.0 code example** provided (uv perturbation + paper grain + color output)
+- Anisotropic Kuwahara filter: 300 lines, no external textures, makes strokes follow edges
+- Radial gradient fill: `float d = length(uv - 0.5)` + FBM noise modulation
+- Wet edge fringe: SDF + power function on edge pixels
+- Procedural paper grain: Simplex noise, 2-3 octaves, granulation formula: `pigment * (1.0 - granulation * paper_height)`
+- Wash fills: object-space FBM for spatial coherence during pan/zoom + `blendMode = MULTIPLY`
+- Expanded ShaderToy table: 8 IDs, most built-in only (no iChannel dependency)
+- Three-step implementation order: SDF boundaries → FBM wash fills → global paper granulation
+- `gracelgilbert` confirmed unusable for 2D Pixi (needs depth buffers + ID textures)
+**No follow-up needed for this pass.**
 
 ### Research pass 2 — Sketch / pencil / crosshatch / ink NPR ✅ COMPLETE
 **File:** `flora-studio/docs/research/npr-sketch-hatch-ink.md`
