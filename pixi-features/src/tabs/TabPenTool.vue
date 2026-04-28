@@ -49,6 +49,7 @@ const anchors = ref<Anchor[]>([]);
 const closed = ref(false);
 const mode = ref<ToolMode>('idle');
 const hoveredCurve = ref<number | null>(null);
+let hoveredCurveT = 0.5; // t parameter at the last hovered point — used for insertion
 const snapInfo = ref('');
 
 // ── Pixi objects (markRaw, never in Vue reactivity) ────────────────────────
@@ -240,6 +241,7 @@ function rebuildHandles() {
       if (mode.value === 'drawing' && isFirst && a.length > 1) {
         closePath(); return;
       }
+      if (e.altKey && mode.value === 'done') { deleteAnchor(i); return; }
       if (e.altKey) { toggleAnchorType(i); return; }
       dragTarget = { kind: 'anchor', idx: i };
       pointerIsDown = true;
@@ -268,11 +270,22 @@ function rebuildPreview() {
 }
 
 // ── Hit detection on committed curves ─────────────────────────────────────
+// Returns segment index i (segment runs from a[i-1] → a[i]).
+// For the closing segment of a closed path, returns a.length.
+// Also stores hoveredCurveT for use by insertAnchorOnSegment.
 function hitTestCurves(wx: number, wy: number): number | null {
   const a = anchors.value;
+  if (a.length < 2) return null;
   const threshWorld = 8 / zoom;
-  for (let i = 1; i < a.length; i++) {
-    const p = a[i - 1]; const c = a[i];
+  const totalSegs = closed.value ? a.length : a.length - 1;
+
+  for (let s = 0; s < totalSegs; s++) {
+    const prevIdx = s;
+    const currIdx = (s + 1) % a.length;
+    const segIdx  = currIdx === 0 ? a.length : currIdx; // a.length = closing segment
+
+    const p = a[prevIdx];
+    const c = a[currIdx];
     const b = new Bezier(
       p.x, p.y,
       p.x + (p.handleOut?.x ?? 0), p.y + (p.handleOut?.y ?? 0),
@@ -280,9 +293,63 @@ function hitTestCurves(wx: number, wy: number): number | null {
       c.x, c.y,
     );
     const proj = b.project({ x: wx, y: wy });
-    if (Math.hypot(proj.x - wx, proj.y - wy) < threshWorld) return i;
+    if (Math.hypot(proj.x - wx, proj.y - wy) < threshWorld) {
+      hoveredCurveT = (proj as any).t ?? 0.5;
+      return segIdx;
+    }
   }
   return null;
+}
+
+// ── Insert anchor on a segment ────────────────────────────────────────────
+// segIdx: the index of the end anchor of the segment (a.length = closing segment).
+// t: parameter along the bezier [0..1] where the new anchor will be placed.
+function insertAnchorOnSegment(segIdx: number, t: number) {
+  const a = anchors.value;
+  const isClosing = segIdx === a.length;
+  const prevIdx   = isClosing ? a.length - 1 : segIdx - 1;
+  const currIdx   = isClosing ? 0 : segIdx;
+
+  const prev = a[prevIdx];
+  const curr = a[currIdx];
+
+  const b = new Bezier(
+    prev.x, prev.y,
+    prev.x + (prev.handleOut?.x ?? 0), prev.y + (prev.handleOut?.y ?? 0),
+    curr.x + (curr.handleIn?.x  ?? 0), curr.y + (curr.handleIn?.y  ?? 0),
+    curr.x, curr.y,
+  );
+
+  const { left, right } = b.split(t);
+  const lp = left.points;
+  const rp = right.points;
+
+  // Update adjacent handles to preserve exact curve shape
+  prev.handleOut = { x: lp[1].x - prev.x, y: lp[1].y - prev.y };
+  curr.handleIn  = { x: rp[2].x - curr.x, y: rp[2].y - curr.y };
+
+  const newAnchor: Anchor = {
+    x:         lp[3].x,
+    y:         lp[3].y,
+    handleIn:  { x: lp[2].x - lp[3].x, y: lp[2].y - lp[3].y },
+    handleOut: { x: rp[1].x - rp[0].x, y: rp[1].y - rp[0].y },
+    type:      'smooth',
+  };
+
+  a.splice(prevIdx + 1, 0, newAnchor);
+  rebuildCommitted();
+  rebuildHandles();
+  dirty = true;
+}
+
+// ── Delete anchor ────────────────────────────────────────────────────────
+function deleteAnchor(idx: number) {
+  anchors.value.splice(idx, 1);
+  if (anchors.value.length < 2) closed.value = false;
+  if (anchors.value.length === 0) mode.value = 'idle';
+  rebuildCommitted();
+  rebuildHandles();
+  dirty = true;
 }
 
 // ── Anchor type helpers ────────────────────────────────────────────────────
@@ -392,7 +459,13 @@ function onTick(_ticker: Ticker) {
 
 // ── Pointer event handlers ─────────────────────────────────────────────────
 function onStagePointerDown(e: any) {
-  if (mode.value === 'done') return;
+  if (mode.value === 'done') {
+    // Click on highlighted curve segment → insert anchor at that point
+    if (hoveredCurve.value !== null) {
+      insertAnchorOnSegment(hoveredCurve.value, hoveredCurveT);
+    }
+    return;
+  }
 
   const wp = screenToWorld(e.global.x, e.global.y);
   const newAnchor: Anchor = { x: wp.x, y: wp.y, handleIn: null, handleOut: null, type: 'corner' };
@@ -622,7 +695,8 @@ onUnmounted(() => {
       <kbd>click</kbd> corner &nbsp;
       <kbd>drag</kbd> smooth &nbsp;
       <kbd>done→drag corner</kbd> convert &nbsp;
-      <kbd>alt+click anchor</kbd> toggle type &nbsp;
+      <kbd>done→click curve</kbd> add anchor &nbsp;
+      <kbd>alt+click anchor</kbd> delete / toggle type &nbsp;
       <kbd>alt+drag handle</kbd> break link &nbsp;
       <kbd>click start</kbd> close &nbsp;
       <kbd>Esc</kbd> finish &nbsp;
