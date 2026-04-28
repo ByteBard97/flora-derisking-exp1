@@ -47,8 +47,17 @@ Four research passes running in parallel. Wait for all four before starting any 
 ### Research pass 1 — Watercolor & wet media (alternate prompt sent)
 **Looking for:** Real-time GLSL implementations of pigment dispersion, edge bleed, paper grain, wash fills. ShaderToy IDs. Portability to Pixi v8 Filter.
 
-### Research pass 2 — Sketch / pencil / crosshatch / ink NPR
-**Looking for:** Sobel edge detection for wobbly outlines, hatching algorithms, pencil grain, stippling, world-space-stable crosshatch. ShaderToy + GitHub + npm.
+### Research pass 2 — Sketch / pencil / crosshatch / ink NPR ✅ COMPLETE
+**File:** `flora-studio/docs/research/npr-sketch-hatch-ink.md`
+**Key findings:**
+- Roberts Cross kernel for edge detection (4 samples, fastest, best for plan view)
+- World-stable UV domain warping for hand-drawn wobble — critical: use world-space coordinates as noise input so lines don't crawl during pan/zoom
+- Praun et al. (2001) Tonal Art Maps — 6 tone levels packed in 2 texture units, interpolate based on luminance. Per-species: fine grasses = high frequency parallel, coarse leaves = bold crosshatch
+- Deterministic randomness: seeds tied to object IDs not frame time — each oak always has the same wobble. Essential for CAD stability.
+- Full multi-pass pipeline: Scene → Shading/Hatch → Edge Detection → Displacement/Jitter → Paper Composite
+- Stippling via Jump Flood Algorithm for ground covers (gravel, mulch)
+- Specific GitHub Gists and URLs for Roberts Cross and depth-lerp stroke width
+**No follow-up needed for this pass.**
 
 ### Research pass 3 — Organic animation (wind, growth, sway)
 **Looking for:** Vertex shader wind sway for 2D top-down sprites, per-instance phase offset for 300+ plants without CPU overhead, spring growth animation, Pixi v8 vertex shader specifics.
