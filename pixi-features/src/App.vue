@@ -15,6 +15,7 @@ const groups: Group[] = [
       { id: 'leader',      label: 'Leader Line',       comp: A('./tabs/TabLeaderLine.vue') },
       { id: 'msdf',        label: 'MSDF Text',         comp: A('./tabs/TabMsdfText.vue') },
       { id: 'bitmap',      label: 'BitmapText',        comp: A('./tabs/TabBitmapText.vue') },
+      { id: 'npr',         label: 'NPR Renderer',      comp: A('./tabs/TabNPRRenderer.vue') },
     ],
   },
   {
