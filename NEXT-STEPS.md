@@ -59,8 +59,21 @@ Four research passes running in parallel. Wait for all four before starting any 
 - Specific GitHub Gists and URLs for Roberts Cross and depth-lerp stroke width
 **No follow-up needed for this pass.**
 
-### Research pass 3 — Organic animation (wind, growth, sway)
-**Looking for:** Vertex shader wind sway for 2D top-down sprites, per-instance phase offset for 300+ plants without CPU overhead, spring growth animation, Pixi v8 vertex shader specifics.
+### Research pass 3 — Organic animation (wind, growth, sway) ✅ COMPLETE
+**File:** `flora-studio/docs/research/organic-plant-animation.md`
+**Key findings:**
+- Per-instance phase offset solved: store `aPhase` as vertex attribute in `MeshGeometry`, uploaded once to GPU, zero per-frame CPU cost
+- 2D top-down wind: distance-from-center mask — edges sway, center stays fixed. Actual GLSL provided.
+- Multi-layer wind: prime-numbered frequencies (0.2, 0.5, 1.2 Hz) to prevent mechanical repeating patterns
+- Hash-based noise for gusts — no texture lookup overhead at 300+ instances
+- Critically damped harmonic oscillator for growth "sprout" animation — URL: devslovecoffee.com/blog/spring-animation-with-glsl-shader
+- MeshGeometry attribute layout: `aPosition`, `aUV`, `aBirthTime`, `aPhase`, `aMatureSize`
+- GPU instancing via Pixi v8 Mesh system — 1 draw call per species
+- Seasonal LUT: 1D texture, species hue as Y coord, season progress as X
+- Dual-noise UV displacement for leaf rustling (nekotoarts.github.io)
+- Specific Pixi v8 `Shader.from()` + `resources` code example provided
+**One gap remaining:** exact TypeScript for marking attributes per-instance vs per-vertex in Pixi v8 MeshGeometry. Solvable at build time from Pixi source.
+**No follow-up needed for this pass.**
 
 ### Research pass 4 — WebGL/browser NPR implementations
 **Looking for:** Working code in the browser today — ShaderToy IDs with actual GLSL, Three.js post-processing ports, existing Pixi v8 filter packages, npm. Ends with a ranked top-5 list.
