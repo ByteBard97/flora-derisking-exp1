@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
-import { Application, Graphics } from 'pixi.js';
+import { Application, Assets, Graphics } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { PixiRenderer } from './PixiRenderer';
 import { useDocStore } from '@/stores/docStore';
@@ -154,6 +154,7 @@ onBeforeUnmount(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
   window.removeEventListener('keydown', onKeyDown);
+  Assets.unload('/site-plan.svg')
   app?.destroy(true);
   app = null;
   viewport = null;
