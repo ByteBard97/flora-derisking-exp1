@@ -18,6 +18,7 @@ const groups: Group[] = [
       { id: 'npr',         label: 'NPR Renderer',      comp: A('./tabs/TabNPRRenderer.vue') },
       { id: 'tree',        label: 'Tree Symbol',       comp: A('./tabs/TabTreeSymbol.vue') },
       { id: 'wind',        label: 'Wind Sway',         comp: A('./tabs/TabWindSway.vue') },
+      { id: 'kuwahara',    label: 'Kuwahara Filter',   comp: A('./tabs/TabKuwahara.vue') },
     ],
   },
   {
