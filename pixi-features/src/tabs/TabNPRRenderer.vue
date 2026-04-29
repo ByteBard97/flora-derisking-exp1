@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, markRaw } from 'vue'
-import { Application, Assets, Sprite, Graphics, Container } from 'pixi.js'
-import { RisographFilter, RISOGRAPH_PARAMS } from '../lib/filters/RisographFilter'
-import type { ParamDef } from '../lib/filters/RisographFilter'
+import { Application, Assets, Sprite, Graphics, Container, Filter, Matrix } from 'pixi.js'
 import { Viewport } from 'pixi-viewport'
 import { drawTreeSymbol, hashId, SPECIES_COLORS } from '../lib/treeSymbol'
 import { useFps } from '../shared/useFps'
+import { RisographFilter, RISOGRAPH_PARAMS } from '../lib/filters/RisographFilter'
+import type { ParamDef } from '../lib/filters/RisographFilter'
+import { WobbleFilter } from '../lib/filters/WobbleFilter'
+import { WatercolorWashFilter } from '../lib/filters/WatercolorWashFilter'
+import { CrosshatchFilter } from '../lib/filters/CrosshatchFilter'
 
-export type StyleId = 'technical' | 'risograph'
+export type StyleId = 'technical' | 'risograph' | 'watercolor' | 'sketch'
 
 const { fps, frameMs } = useFps()
 const canvasEl = ref<HTMLCanvasElement>()
@@ -16,10 +19,14 @@ let app = markRaw({} as Application)
 let viewport = markRaw({} as Viewport)
 let plantLayer = markRaw({} as Container)
 let plantGfx: Graphics[] = []
-let activeFilters: RisographFilter[] = []
+let activeFilters: Filter[] = []
 const paramValues = ref<Record<string, number>>({})
 
 const activeStyle = ref<StyleId>('technical')
+
+let bg = markRaw({} as Sprite)
+let wobbleFilter = markRaw({} as WobbleFilter)
+const wobbleEnabled = ref(false)
 
 const DEMO_PLANTS = [
   { id: 'p01', species: 'oak',      x: 120, y: 80,  r: 32 },
@@ -51,6 +58,15 @@ const DEMO_PLANTS = [
 
 type SpeciesName = 'oak' | 'magnolia' | 'azalea' | 'fern'
 
+function hexToRgb(hex: number): [number, number, number] {
+  return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255]
+}
+
+function speciesLuma(hex: number): number {
+  const [r, g, b] = hexToRgb(hex)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
 function applyParamsToFilter(f: RisographFilter) {
   const u = (f.resources.risoUniforms as any).uniforms
   if ('uHalftoneScale' in paramValues.value) u.uHalftoneScale = paramValues.value.uHalftoneScale
@@ -58,44 +74,80 @@ function applyParamsToFilter(f: RisographFilter) {
   if ('uGrainStrength' in paramValues.value) u.uGrainStrength = paramValues.value.uGrainStrength
 }
 
+const _mat = new Matrix()
+
+function updateCrosshatchMatrix() {
+  // viewport.localTransform maps world→screen; invert for screen→world
+  viewport.localTransform.copyTo(_mat)
+  _mat.invert()
+  const m = new Float32Array([_mat.a, _mat.b, 0, _mat.c, _mat.d, 0, _mat.tx, _mat.ty, 1])
+  for (const f of activeFilters) {
+    if (f instanceof CrosshatchFilter) {
+      ;(f.resources.hatchUniforms as any).uniforms.uWorldMatrix = m
+    }
+  }
+}
+
 function applyStyle(style: StyleId) {
-  // Clear existing filters and cacheAsTexture from all plant gfx
   for (const gfx of plantGfx) {
-    gfx.cacheAsTexture(false)
     gfx.filters = []
   }
   activeFilters = []
+  // Remove crosshatch ticker if present — add it back for sketch
+  app.ticker?.remove(updateCrosshatchMatrix)
 
   if (style === 'risograph') {
-    // Initialize param values from defaults
     for (const p of RISOGRAPH_PARAMS) {
-      if (!(p.uniform in paramValues.value)) {
-        paramValues.value[p.uniform] = p.default
-      }
+      if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
     }
-    // Create one filter instance per plant.
-    // Do NOT call cacheAsTexture(true) here — combining filters and
-    // cacheAsTexture on the same Graphics in Pixi v8 causes the display
-    // object to render transparent. Cache individual leaves only when
-    // no filters are active.
     for (const gfx of plantGfx) {
       const f = new RisographFilter()
       applyParamsToFilter(f)
       gfx.filters = [f]
       activeFilters.push(f)
     }
+  } else if (style === 'watercolor') {
+    DEMO_PLANTS.forEach((plant, i) => {
+      const gfx = plantGfx[i]
+      const color = SPECIES_COLORS[plant.species as SpeciesName]
+      const rgb = hexToRgb(color)
+      const f = new WatercolorWashFilter(rgb)
+      gfx.filters = [f]
+    })
+  } else if (style === 'sketch') {
+    const IDENTITY = new Float32Array([1,0,0, 0,1,0, 0,0,1])
+    DEMO_PLANTS.forEach((plant, i) => {
+      const gfx = plantGfx[i]
+      const color = SPECIES_COLORS[plant.species as SpeciesName]
+      const luma = speciesLuma(color)
+      const tone = 1 - luma
+      const [r, g, b] = hexToRgb(color)
+      const hatchColor: [number, number, number] = [r * 0.55, g * 0.55, b * 0.55]
+      const f = new CrosshatchFilter(tone, hatchColor, hashId(plant.id) * 0.0001)
+      // Set identity world matrix initially; ticker updates it each frame
+      ;(f.resources.hatchUniforms as any).uniforms.uWorldMatrix = IDENTITY
+      gfx.filters = [f]
+      activeFilters.push(f)
+    })
+    // Start ticker to update uWorldMatrix each frame
+    app.ticker.add(updateCrosshatchMatrix)
   }
 }
 
 function onSliderInput(uniform: string, value: number) {
   paramValues.value[uniform] = value
   for (const f of activeFilters) {
-    applyParamsToFilter(f)
+    if (f instanceof RisographFilter) applyParamsToFilter(f)
   }
 }
 
 watch(activeStyle, (style) => {
   if (plantGfx.length > 0) applyStyle(style)
+})
+
+watch(wobbleEnabled, (enabled) => {
+  if (plantGfx.length === 0) return  // not mounted yet
+  bg.filters = enabled ? [wobbleFilter] : []
 })
 
 onMounted(async () => {
@@ -122,10 +174,13 @@ onMounted(async () => {
   app.stage.addChild(viewport as any)
 
   const bgTex = await Assets.load('/demo-landscape.png')
-  const bg = markRaw(new Sprite(bgTex))
+  bg = markRaw(new Sprite(bgTex))
   bg.width = 880
   bg.height = 701
   viewport.addChild(bg as any)
+
+  wobbleFilter = markRaw(new WobbleFilter())
+  // Don't apply yet — wobbleEnabled watcher does it
 
   plantLayer = markRaw(new Container())
   viewport.addChild(plantLayer as any)
@@ -142,6 +197,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  app.ticker?.remove(updateCrosshatchMatrix)
   app?.destroy(true, { children: true, texture: true, context: true })
 })
 </script>
@@ -159,7 +215,14 @@ onUnmounted(() => {
         <select v-model="activeStyle">
           <option value="technical">Technical</option>
           <option value="risograph">Risograph</option>
+          <option value="watercolor">Watercolor</option>
+          <option value="sketch">Sketch</option>
         </select>
+      </label>
+      <div class="divider" />
+      <label class="row">
+        <span>Wobble background</span>
+        <input type="checkbox" v-model="wobbleEnabled" />
       </label>
       <template v-if="activeStyle === 'risograph'">
         <div class="divider" />
