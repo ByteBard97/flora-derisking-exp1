@@ -250,9 +250,14 @@ const listed = computed(() => activeTab.value === 'active' ? active.value : done
 const selected = computed(() => items.value.find(i => i.id === selectedId.value) ?? null);
 
 function select(id: number) {
+  console.log('[TodoPanel] select() called with item id:', id);
   selectedId.value = selectedId.value === id ? null : id;
   const item = items.value.find(i => i.id === id);
-  if (item?.tabId) emit('navigate', item.tabId);
+  console.log('[TodoPanel] found item:', item?.title, '- tabId:', item?.tabId);
+  if (item?.tabId) {
+    console.log('[TodoPanel] emitting navigate event with tabId:', item.tabId);
+    emit('navigate', item.tabId);
+  }
 }
 
 function toggle(item: TodoItem) {
@@ -309,7 +314,7 @@ function updateSelected(field: 'title' | 'body', val: string) {
         v-for="item in listed" :key="item.id"
         class="todo-item"
         :class="{ selected: selectedId === item.id, done: item.done }"
-        @click="select(item.id)"
+        @click="() => { console.log('[TodoPanel] row clicked for item:', item.title); select(item.id); }"
       >
         <input
           type="checkbox"

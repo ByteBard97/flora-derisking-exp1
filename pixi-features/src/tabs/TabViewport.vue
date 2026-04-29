@@ -18,6 +18,10 @@ const decelerate = ref(true);
 let app = markRaw({} as Application);
 let viewport: Viewport;
 let contentLayer = markRaw({} as Container);
+let spaceHeld = false;
+let handleKeyDown: (e: KeyboardEvent) => void;
+let handleKeyUp: (e: KeyboardEvent) => void;
+let handleWheel: (e: WheelEvent) => void;
 
 const WORLD_W = 3000;
 const WORLD_H = 2000;
@@ -93,6 +97,34 @@ onMounted(async () => {
   viewport.fit();
   viewport.moveCenter(WORLD_W / 2, WORLD_H / 2);
 
+  // Control + trackpad scroll = pan instead of zoom
+  handleKeyDown = (e: KeyboardEvent) => {
+    if (e.ctrlKey) {
+      console.log('[Viewport] Control key DOWN');
+      spaceHeld = true;
+    }
+  };
+  handleKeyUp = (e: KeyboardEvent) => {
+    if (!e.ctrlKey) {
+      console.log('[Viewport] Control key UP');
+      spaceHeld = false;
+    }
+  };
+  handleWheel = (e: WheelEvent) => {
+    console.log('[Viewport] wheel event:', { deltaX: e.deltaX, deltaY: e.deltaY, controlHeld: spaceHeld });
+    if (spaceHeld) {
+      console.log('[Viewport] Control held — panning');
+      e.preventDefault();
+      viewport.moveCenter(viewport.center.x - e.deltaX * 0.5, viewport.center.y - e.deltaY * 0.5);
+    } else {
+      console.log('[Viewport] Control not held — pixi-viewport will handle zoom');
+    }
+  };
+
+  window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keyup', handleKeyUp);
+  canvas.addEventListener('wheel', handleWheel, { passive: false });
+
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
     registerPixiBridge(app, {
@@ -108,6 +140,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('keyup', handleKeyUp);
+  const canvas = canvasEl.value;
+  if (canvas) canvas.removeEventListener('wheel', handleWheel);
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
   app?.destroy(true, { children: true, texture: true, context: true });
@@ -132,7 +168,7 @@ onUnmounted(() => {
         World: {{ WORLD_W }}×{{ WORLD_H }}
       </div>
     </div>
-    <div class="hint">Drag · scroll to zoom · pinch on touch · momentum deceleration</div>
+    <div class="hint">Drag · scroll to zoom · Control+scroll to pan · pinch on touch · momentum deceleration</div>
   </div>
 </template>
 

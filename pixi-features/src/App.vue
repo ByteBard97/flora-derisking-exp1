@@ -72,8 +72,12 @@ const activeComp = computed(() => (allTabs.find(t => t.id === active.value) ?? a
 const activeLabel = computed(() => (allTabs.find(t => t.id === active.value) ?? allTabs[0]).label)
 
 function select(id: string) {
+  console.log('[App.vue] select() called with tab id:', id);
+  console.log('[App.vue] current active tab before:', active.value);
   active.value = id
+  console.log('[App.vue] set active tab to:', active.value);
   localStorage.setItem(STORAGE_KEY, id)
+  console.log('[App.vue] saved to localStorage');
 }
 </script>
 
@@ -107,7 +111,7 @@ function select(id: string) {
 
     <!-- Todo panel — slides in from the right -->
     <aside class="todo-aside" :class="{ open: todoOpen }">
-      <TodoPanel @navigate="select" />
+      <TodoPanel @navigate="(id) => { console.log('[App.vue] @navigate event received with id:', id); select(id); }" />
     </aside>
   </div>
 </template>
