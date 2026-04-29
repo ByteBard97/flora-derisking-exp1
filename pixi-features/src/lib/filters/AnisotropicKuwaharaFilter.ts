@@ -14,8 +14,8 @@
  *  - Flat uniform declarations in GLSL — NO interface blocks/UBOs (cause GPU errors)
  *  - Sampler2D resources at top-level of resources, NOT inside a UniformGroup
  */
-import { Filter, GlProgram, UniformGroup, BlurFilter, RenderTexture, defaultFilterVert } from 'pixi.js'
-import type { FilterSystem, Texture, RenderSurface } from 'pixi.js'
+import { Filter, GlProgram, UniformGroup, BlurFilter, RenderTexture, defaultFilterVert, Texture } from 'pixi.js'
+import type { FilterSystem, RenderSurface } from 'pixi.js'
 
 // ---------------------------------------------------------------------------
 // Pass 1: Sobel structure tensor
@@ -216,8 +216,10 @@ export class AnisotropicKuwaharaFilter extends Filter {
     })
     this._kuwaharaFilter = new Filter({
       glProgram: GlProgram.from({ vertex: defaultFilterVert, fragment: KUWAHARA_FRAG }),
-      resources: { kuwaharaUniforms },
-      // padding ensures the neighbourhood kernel doesn't sample outside the frame
+      resources: {
+        kuwaharaUniforms,
+        uTensorTex: Texture.WHITE.source,  // placeholder; replaced in apply() each frame
+      },
       padding: Math.ceil(kernelSize / 2),
     })
   }
