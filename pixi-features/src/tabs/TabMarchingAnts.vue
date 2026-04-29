@@ -51,6 +51,8 @@ function polylineLength(pts: [number,number][]): number {
 function drawDashedPolyline(gfx: Graphics, pts: [number,number][], offset: number, dash: number, gap: number, color: number) {
   const period = dash + gap;
   let distAlongPath = -((offset % period) + period) % period;
+  // stroke() clones but does not clear the active path — beginPath() isolates each call.
+  gfx.beginPath();
   gfx.setStrokeStyle({ width: 1.5, color, pixelLine: false } as any);
 
   for (let i = 1; i < pts.length; i++) {
@@ -64,20 +66,25 @@ function drawDashedPolyline(gfx: Graphics, pts: [number,number][], offset: numbe
     while (t < segLen) {
       const phase = ((distAlongPath + t) % period + period) % period;
       const inDash = phase < dash;
-      const remaining = inDash ? dash - phase : gap - phase;
+      const remaining = inDash ? dash - phase : period - phase;
       const step = Math.min(remaining, segLen - t);
+      const nextT = t + step;
+      // Float guard: if step is smaller than the ULP of t, t won't advance → infinite loop.
+      if (nextT <= t) break;
 
       if (inDash) {
         const sx = ax + dx * t;
         const sy = ay + dy * t;
-        const ex = ax + dx * (t + step);
-        const ey = ay + dy * (t + step);
-        gfx.moveTo(sx, sy).lineTo(ex, ey).stroke();
+        const ex = ax + dx * nextT;
+        const ey = ay + dy * nextT;
+        gfx.moveTo(sx, sy).lineTo(ex, ey);
       }
-      t += step;
+      t = nextT;
     }
     distAlongPath += segLen;
   }
+  // One tessellation + GPU instruction for the entire dashed path, not one per segment.
+  gfx.stroke();
 }
 
 function getRectPoly(r: {x:number,y:number,w:number,h:number}): [number,number][] {
