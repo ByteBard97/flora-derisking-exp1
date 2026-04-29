@@ -16,6 +16,7 @@ const groups: Group[] = [
       { id: 'msdf',        label: 'MSDF Text',         comp: A('./tabs/TabMsdfText.vue') },
       { id: 'bitmap',      label: 'BitmapText',        comp: A('./tabs/TabBitmapText.vue') },
       { id: 'npr',         label: 'NPR Renderer',      comp: A('./tabs/TabNPRRenderer.vue') },
+      { id: 'tree',        label: 'Tree Symbol',       comp: A('./tabs/TabTreeSymbol.vue') },
     ],
   },
   {
