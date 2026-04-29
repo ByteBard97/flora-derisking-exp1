@@ -1,6 +1,6 @@
 # Flora Derisking — Next Steps
 
-Last updated: 2026-04-28
+Last updated: 2026-04-29
 
 ---
 
@@ -19,8 +19,14 @@ The individual feature spikes are mostly proven in `pixi-features/`. The remaini
 
 Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb before we commit to the production architecture. "It loads" is not the same as "it works correctly."
 
-**Not yet visually verified at all:**
-- Marching Ants
+**Code-reviewed and bug-fixed (2026-04-29):**
+- Transform Gizmo — fixed: ticker leak (missing remove in onUnmounted), dead code obj.x lines 234-235
+- @pixi/ui — fixed: anonymous ticker callback leaked post-unmount (stored as logTick)
+- Spatial Index — reviewed: GraphicsContext swap pattern confirmed correct Pixi v8 API
+- Viewport — reviewed: no bugs found (Vue 3 auto-unwraps ref in template, buildScene call is correct)
+
+**Still needs visual verification in browser:**
+- Marching Ants — being worked on by a separate agent (broken)
 - Viewport
 - Transform Gizmo
 - Spatial Index
@@ -177,7 +183,26 @@ Three specific gaps remain after all research passes. These are cheap — fire t
 
 ---
 
-## Track 3: NPR Spike Tabs (ready to build once follow-ups land)
+## Track 3: NPR Spike Tabs ✅ DONE (2026-04-29)
+
+`TabNPRRenderer` is complete on branch `feature/tab-npr-renderer`. Implements all four styles:
+- **Technical** — clean vector crosshair symbols
+- **Risograph** — posterize + rotated halftone + misregistration + grain (live sliders)
+- **Watercolor** — radial SDF wash + FBM pigment granulation + drying edge + paper grain
+- **Sketch** — world-stable colored-pencil crosshatch, uWorldMatrix updated per-frame via ticker
+
+Plus: **Wobble background** checkbox applies FBM displacement to the plan diagram.
+
+Filter files: `RisographFilter.ts`, `WatercolorWashFilter.ts`, `WobbleFilter.ts`, `CrosshatchFilter.ts`, `glslNoise.ts` (shared noise utilities).
+
+All styles: 0 console errors, 120 FPS, 25 plants, myopex audit clean.
+
+Key Pixi v8 lessons learned (documented in memory):
+- Uniform interface blocks (UBOs) cause "unbound uniform buffer" — use plain `uniform float` declarations
+- `#version 300 es` is NOT auto-injected — Pixi detects it by presence in source
+- `cacheAsTexture(true)` + filters on same Graphics = invisible rendering
+
+## Track 3b: Former NPR Spike Tabs (superseded by TabNPRRenderer)
 
 ### TabWatercolor
 **What to build:**
