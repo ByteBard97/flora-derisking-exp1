@@ -1,6 +1,6 @@
 # Flora Derisking — Next Steps
 
-Last updated: 2026-04-29
+Last updated: 2026-04-29 (evening)
 
 ---
 
@@ -20,14 +20,23 @@ The individual feature spikes are mostly proven in `pixi-features/`. The remaini
 Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb before we commit to the production architecture. "It loads" is not the same as "it works correctly."
 
 **Code-reviewed and bug-fixed (2026-04-29):**
-- Transform Gizmo — fixed: ticker leak (missing remove in onUnmounted), dead code obj.x lines 234-235
-- @pixi/ui — fixed: anonymous ticker callback leaked post-unmount (stored as logTick)
-- Spatial Index — reviewed: GraphicsContext swap pattern confirmed correct Pixi v8 API
-- Viewport — reviewed: no bugs found (Vue 3 auto-unwraps ref in template, buildScene call is correct)
+- Marching Ants — fixed: 3 bugs (gap-phase infinite loop, per-segment stroke, path accumulation); added TilingSprite and Davidfig comparison tabs
+- Freehand — fixed: DPR coord scaling, RenderTexture sizing, broken clear button
+- Transform Gizmo — fixed: rotation handle direction (sign flip on sin); scale anchor signs all inverted; plus prior ticker leak fix
+- Pen Tool — fixed: grid O(n²) tessellation (202 strokes→1 batch); handle line accumulation
+- Knife — fixed: endpoint fill isolation after cut line stroke
+- Measure — fixed: vertex fill isolation after guide line stroke
+- Boolean Ops — fixed: fill+stroke path isolation in drawBed() and drawResult()
+- Selection — fixed: fill+stroke collapsed to chained .fill().stroke(); lasso rect
+- Snapping — fixed: grid O(n²) tessellation; crosshair batch; per-vertex path isolation
+- Viewport — fixed: grid border/lines isolation via beginPath()
+- @pixi/ui — reviewed: clean (logTick stored and removed correctly)
+- Spatial Index — reviewed: clean (rbush + GraphicsContext swap pattern correct)
 
-**Still needs visual verification in browser:**
-- Marching Ants — being worked on by a separate agent (broken)
-- Viewport
+Root cause found across all tabs: Pixi v8 `stroke()` clones the active path without clearing it.
+Every tab that called `stroke()` or `fill()` in a loop was accumulating paths into O(n²) tessellation work.
+
+**Still needs visual verification in browser (code is clean, just needs eyeballs):**
 - Transform Gizmo
 - Spatial Index
 - @pixi/ui
@@ -105,9 +114,18 @@ Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb 
 
 ---
 
-## Track 2b: Follow-up Research Prompts Still Needed
+## Track 2b: Follow-up Research ✅ DONE (2026-04-29)
 
-Three specific gaps remain after all research passes. These are cheap — fire them off.
+All three follow-up docs written to `flora-studio/docs/research/`:
+- `followup-A-tree-symbol-impl.md` — complete `drawTreeSymbol()` TS for watercolor/sketch/technical styles, seeded-per-coordinate randomness, 4 species call sites
+- `followup-B-multipass-filter.md` — `AnisotropicKuwaharaFilter extends Filter` with 3-pass orchestration, RenderTexture reuse, second-sampler binding, BlurFilter pass
+- `followup-C-world-matrix-uniform.md` — per-frame `uWorldMatrix` ticker wiring, race condition analysis (read viewport.position not worldTransform), write-into-existing-array gotcha
+
+**Next:** implement `drawTreeSymbol()` as a new tab so Annie can see all three styles side by side.
+
+---
+
+## Track 2b (archived): Follow-up Research Prompts (completed above)
 
 ### Follow-up A: `drawTreeSymbol()` TypeScript implementation
 **Gap:** The landscape tree symbol research (doc `landscape-tree-symbol.md`) had **zero runnable code**. We need the TypeScript function to draw plan-view tree symbols with Pixi `Graphics`.
