@@ -231,8 +231,6 @@ function onPM(e: PointerEvent) {
     if (isCorner || isHoriz) {
       const newW = Math.abs(localX);
       obj.scaleX = Math.max(0.1, newW / obj.w);
-      obj.x = aw.x + (localX > 0 ? 1 : -1) * newW / 2 * Math.cos(obj.rotation) - localY / 2 * Math.sin(obj.rotation);
-      obj.x = aw.x + (newW / 2) * Math.cos(obj.rotation) * (localX > 0 ? 1 : -1);
     }
     if (isCorner || isVert) {
       const newH = Math.abs(localY);
@@ -336,6 +334,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
+  app.ticker?.remove(onTick);
   const canvas = canvasEl.value;
   canvas?.removeEventListener('pointerdown', onPD);
   canvas?.removeEventListener('pointermove', onPM);
