@@ -61,9 +61,10 @@ Every tab that called `stroke()` or `fill()` in a loop was accumulating paths in
 - MSDF Text ✅ — 300 labels at mixed sizes, crisp at all zoom levels
 - BitmapText ✅ — 200 GPU atlas labels zoom-stable vs blurry regular Text comparison
 
+- Kuwahara Filter ✅ — single-pass isotropic, 105fps, 0 warnings (root cause: GLSL dynamic loop bounds need #version 300 es)
+
 **Still broken (separate agent working on it):**
 - Marching Ants (original TabMarchingAnts.vue)
-- Kuwahara Filter — multi-pass cross-context WebGL program reference bug; tab present but broken
 
 **Freehand quality specifically** — draw a messy S-curve and a rough bed boundary, release, and assess whether the auto-smoothed bezier looks Illustrator-quality. Tune `fitError` in `pathFit.ts` if needed (currently 4).
 

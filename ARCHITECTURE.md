@@ -532,15 +532,13 @@ Pixi's normal scene graph is designed for.
    real bed shapes. If paper.js offsetPath() introduces artifacts on tight curves, fall back to
    center-aligned stroke (accept the 1pt dimension error) or double-width + clip mask.
 
-5. **AnisotropicKuwahara multi-pass filter**: `TabKuwahara.vue` is currently disabled with a
-   "multi-pass cross-context program bug". Likely cause: `GlProgram.from({ vertex, fragment })` with
-   the same source is cached; two `Filter` instances sharing the same `GlProgram` object may conflict
-   when `filterManager.applyFilter()` is called on each separately. Workaround to investigate:
-   (a) use unique program source per filter (append a comment), or
-   (b) lazy-initialize the inner filters inside `apply()` rather than in the constructor, so they
-   compile fresh against the renderer that's actually calling `apply()`.
-   This is a nice-to-have (watercolor pass in TabNPRRenderer already provides a simpler painterly
-   effect). Investigate after production baseline is working.
+5. **Kuwahara filter**: ✅ Resolved 2026-04-29. The "useProgram: program not valid" bug was GLSL
+   dynamic loop bounds — `for (float y = -r; y <= 0.0; y += 1.0)` where `r` is a uniform requires
+   GLSL ES 3.00. Without `#version 300 es`, Pixi compiles the shader in ES 1.0 compat mode where
+   dynamic bounds are rejected at link time. Fix: add `#version 300 es` to both SOBEL_FRAG and
+   KUWAHARA_FRAG. The AnisotropicKuwaharaFilter (3-pass) still has the cross-context `applyFilter()`
+   bug separately — that filter is retained in the codebase but the tab uses the simpler single-pass
+   `KuwaharaFilter` which works correctly at 105fps.
 
 ## Resolved Questions
 
