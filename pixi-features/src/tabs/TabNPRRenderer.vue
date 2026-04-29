@@ -205,14 +205,14 @@ onUnmounted(() => {
 <template>
   <div class="wrap">
     <canvas ref="canvasEl" />
-    <div class="hud">
+    <div class="hud" aria-label="Performance overlay">
       <div class="fps">{{ fps }} <span>fps</span></div>
       <div>{{ frameMs }} ms</div>
     </div>
-    <div class="panel">
+    <aside class="panel" aria-label="NPR style controls">
       <label class="row">
         Style
-        <select v-model="activeStyle">
+        <select v-model="activeStyle" aria-label="NPR rendering style" data-testid="style-select">
           <option value="technical">Technical</option>
           <option value="risograph">Risograph</option>
           <option value="watercolor">Watercolor</option>
@@ -222,7 +222,7 @@ onUnmounted(() => {
       <div class="divider" />
       <label class="row">
         <span>Wobble background</span>
-        <input type="checkbox" v-model="wobbleEnabled" />
+        <input type="checkbox" v-model="wobbleEnabled" aria-label="Wobble background" data-testid="wobble-checkbox" />
       </label>
       <template v-if="activeStyle === 'risograph'">
         <div class="divider" />
@@ -238,7 +238,7 @@ onUnmounted(() => {
           <span class="slider-val">{{ (paramValues[p.uniform] ?? p.default).toFixed(2) }}</span>
         </label>
       </template>
-    </div>
+    </aside>
   </div>
 </template>
 
