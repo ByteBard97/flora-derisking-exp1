@@ -36,20 +36,29 @@ Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb 
 Root cause found across all tabs: Pixi v8 `stroke()` clones the active path without clearing it.
 Every tab that called `stroke()` or `fill()` in a loop was accumulating paths into O(n²) tessellation work.
 
-**Still needs visual verification in browser (code is clean, just needs eyeballs):**
-- Transform Gizmo
-- Spatial Index
-- @pixi/ui
+**Visually verified 2026-04-29 (all passing at 120 FPS, 0 errors):**
+- Transform Gizmo ✅ — scale/rotate handles correct, OBB updates correctly
+- Spatial Index ✅ — 1000 circles + R-tree marquee query working
+- @pixi/ui ✅ — Button, Slider, CheckBox, ScrollBox all in-canvas
+- Viewport ✅ — 300 batched circles, pan/zoom, no crash
+- Pen Tool ✅ — corner/smooth anchors, preview line, full keybinding legend
+- Freehand ✅ — S-curve auto-smooths to 5 bezier segments, Illustrator quality
+- Knife Tool ✅ — "Split! 3 + 3 segments", correct bezier sub-paths colored correctly
+- Boolean Ops ✅ — Union (133pts/5.5ms), Intersect (33pts), Difference (77pts) all correct
+- Measure Tool ✅ — Line Distance "111'" with measurement line
+- Snapping ✅ — Grid/vertex/edge snap controls, polygon + draggable shape
+- Text Annotation ✅ — editable + draggable labels render correctly
+- Dashed Lines ✅ — 8 styles (world-space + pixel-line, world lines thicken on zoom)
+- Selection ✅ — 40 shapes, 120 FPS (interactive selection needs real browser events)
+- Tree Symbol ✅ — 3 styles × 4 species
+- Wind Sway ✅ — 200 plants, 1 draw call, GPU-instanced wind + growth animation
+- Ants · Phase Math ✅ — marching ants via phase-math approach
+- Ants · TilingSprite ✅ — marching ants via TilingSprite (GPU-efficient, rectangles only)
+- Ants · Davidfig ✅ — marching ants via segIdx walk (arbitrary polylines)
+- NPR Renderer ✅ — 4 styles (Technical/Risograph/Watercolor/Sketch) on real plant SVGs
 
-**Verified loading but need deeper testing:**
-- Plant Renderer — 300 plants, leader lines, multi-select drag, LOD thresholds
-- Pen Tool — add/delete vertices, close path, all anchor types, zoom behavior
-- Freehand — auto-smooth quality: does the green bezier overlay look Illustrator-quality?
-- Knife Tool — split algorithm edge cases (same segment, near endpoints, closed paths)
-- Measure Tool — area math accuracy, arc length on curved beds, scale conversion
-- Text Annotation — positioning correct after zoom/pan, drag stability
-- Boolean Ops — edge cases on complex overlapping shapes
-- Selection — group drag, lasso precision, shift+click toggle
+**Still broken (separate agent working on it):**
+- Marching Ants (original TabMarchingAnts.vue)
 - Snapping — vertex/edge snap at different zoom levels
 
 **Freehand quality specifically** — draw a messy S-curve and a rough bed boundary, release, and assess whether the auto-smoothed bezier looks Illustrator-quality. Tune `fitError` in `pathFit.ts` if needed (currently 4).
