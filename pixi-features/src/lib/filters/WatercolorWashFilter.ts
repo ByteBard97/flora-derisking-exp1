@@ -64,9 +64,16 @@ void main() {
   float grain   = (paper - 0.5) * 0.18;
   wash *= 1.0 + grain;
 
+  // Un-premultiply the original sprite so we can tint it
+  vec3 origRgb = src.a > 0.001 ? src.rgb / src.a : vec3(0.0);
+
+  // Blend: 45% watercolor wash + 55% original botanical illustration
+  // Preserves sprite detail while adding watercolor tint, grain and edge fringe
+  vec3 tinted = mix(origRgb, wash, 0.45);
+
   float alpha = src.a * mix(1.0, pigMod, 0.55);
   alpha *= mix(1.0, 0.92, uWetness);
-  finalColor = vec4(wash * alpha, alpha);
+  finalColor = vec4(tinted * alpha, alpha);
 }
 `
 

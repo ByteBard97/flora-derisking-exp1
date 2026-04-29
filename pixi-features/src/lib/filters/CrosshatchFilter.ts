@@ -64,10 +64,16 @@ void main() {
   float g3 = smoothstep(0.65, 0.95, uTone);
   float coverage = max(max(l1*g1, l2*g2), l3*g3);
 
-  vec3  rgb   = mix(uPaperColor.rgb, uHatchColor, coverage);
-  float alpha = max(uPaperColor.a, coverage);
-  float mask  = texture(uTexture, vTextureCoord).a;
-  finalColor  = vec4(rgb * alpha, alpha) * mask;
+  // Un-premultiply original sprite
+  vec4  src     = texture(uTexture, vTextureCoord);
+  float mask    = src.a;
+  vec3  origRgb = mask > 0.001 ? src.rgb / mask : vec3(0.0);
+
+  // Multiply-darken: hatch lines are darker ink over the botanical illustration.
+  // coverage=0 → pure original; coverage=1 → original darkened by 65%.
+  float darken  = 1.0 - coverage * 0.65;
+  vec3  rgb     = origRgb * darken;
+  finalColor    = vec4(rgb * mask, mask);
 }
 `
 
