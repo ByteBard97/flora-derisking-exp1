@@ -28,3 +28,5 @@ yarn-error.log*
 
 # knowledge graph cache
 .knowledge-graph/
+.tmp-scripts/
+marching-ants/
