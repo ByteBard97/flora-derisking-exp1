@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
-import { Application, Graphics } from 'pixi.js';
+import { Application, Assets, Graphics } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { PixiRenderer } from './PixiRenderer';
 import { useDocStore } from '@/stores/docStore';
@@ -82,6 +82,7 @@ onMounted(async () => {
   app.stage.addChild(viewport);
   app.stage.eventMode = 'static';
   viewport.on('zoomed', () => {
+    if (!viewport) return;
     renderer?.updateLOD(viewport.scale.x);
     emit('zoom', viewport.scale.x);
   });
@@ -149,10 +150,11 @@ onMounted(async () => {
   );
 });
 
-onBeforeUnmount(() => {
+onBeforeUnmount(async () => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
   window.removeEventListener('keydown', onKeyDown);
+  await Assets.unload('/site-plan.svg')
   app?.destroy(true);
   app = null;
   viewport = null;
@@ -203,8 +205,7 @@ function onStagePointerMove(e: any): void {
   const lh = Math.abs(lassoCurrentWorld.y - lassoStartWorld.y);
   lassoGfx.clear();
   if (lw > DRAG_THRESHOLD_PX || lh > DRAG_THRESHOLD_PX) {
-    lassoGfx.rect(lx, ly, lw, lh).fill({ color: 0x0070e0, alpha: 0.1 });
-    lassoGfx.rect(lx, ly, lw, lh).stroke({ color: 0x0070e0, width: 1 / viewport.scale.x });
+    lassoGfx.rect(lx, ly, lw, lh).fill({ color: 0x0070e0, alpha: 0.1 }).stroke({ color: 0x0070e0, width: 1 / viewport.scale.x });
   }
 }
 

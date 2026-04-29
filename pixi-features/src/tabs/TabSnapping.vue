@@ -66,19 +66,16 @@ function applySnap(wx: number, wy: number) {
 
 function drawGrid() {
   gridGfx.clear();
-  for (let x = -2000; x <= 2000; x += GRID) {
-    (gridGfx as any).setStrokeStyle({ width: 1, color: 0x2a2a2a, pixelLine: true });
-    gridGfx.moveTo(x, -2000).lineTo(x, 2000).stroke();
-  }
-  for (let y = -2000; y <= 2000; y += GRID) {
-    (gridGfx as any).setStrokeStyle({ width: 1, color: 0x2a2a2a, pixelLine: true });
-    gridGfx.moveTo(-2000, y).lineTo(2000, y).stroke();
-  }
-  // Dot at each grid intersection (subtle)
+  (gridGfx as any).setStrokeStyle({ width: 1, color: 0x2a2a2a, pixelLine: true });
+  for (let x = -2000; x <= 2000; x += GRID) gridGfx.moveTo(x, -2000).lineTo(x, 2000);
+  for (let y = -2000; y <= 2000; y += GRID) gridGfx.moveTo(-2000, y).lineTo(2000, y);
+  gridGfx.stroke();
+  // Dot at each major grid intersection — belongs in gridGfx, not staticGfx
   for (let x = -800; x <= 800; x += GRID * 5) {
     for (let y = -600; y <= 600; y += GRID * 5) {
-      staticGfx.setFillStyle({ color: 0x333333 });
-      staticGfx.circle(x, y, 1.5).fill();
+      gridGfx.beginPath();
+      gridGfx.setFillStyle({ color: 0x333333 });
+      gridGfx.circle(x, y, 1.5).fill();
     }
   }
 }
@@ -87,11 +84,11 @@ function drawStatic() {
   staticGfx.clear();
   // Edges
   staticGfx.setStrokeStyle({ width: 1.5, color: 0x3366cc });
-  for (const [a, b] of EDGES) {
-    staticGfx.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke();
-  }
-  // Vertices
+  for (const [a, b] of EDGES) staticGfx.moveTo(a.x, a.y).lineTo(b.x, b.y);
+  staticGfx.stroke();
+  // Vertices — each needs its own path to avoid accumulation
   for (const v of VERTS) {
+    staticGfx.beginPath();
     staticGfx.setFillStyle({ color: 0x6699ff });
     staticGfx.setStrokeStyle({ width: 1.5, color: 0xffffff });
     staticGfx.circle(v.x, v.y, 5).fill().stroke();
@@ -106,22 +103,23 @@ function drawShape() {
   const SIZE = 20;
   shapeGfx.setFillStyle({ color: isSnapping ? 0xffdd00 : 0xff6600, alpha: 0.85 });
   shapeGfx.setStrokeStyle({ width: 2, color: isSnapping ? 0xffff44 : 0xff9900 });
-  shapeGfx.rect(pos.x - SIZE, pos.y - SIZE, SIZE * 2, SIZE * 2).fill();
-  shapeGfx.rect(pos.x - SIZE, pos.y - SIZE, SIZE * 2, SIZE * 2).stroke();
+  shapeGfx.rect(pos.x - SIZE, pos.y - SIZE, SIZE * 2, SIZE * 2).fill().stroke();
 
-  // Crosshair at center
+  // Crosshair at center — batch both lines into one stroke
+  shapeGfx.beginPath();
   shapeGfx.setStrokeStyle({ width: 1, color: 0xffffff, alpha: 0.4, pixelLine: true } as any);
-  shapeGfx.moveTo(pos.x - 6, pos.y).lineTo(pos.x + 6, pos.y).stroke();
-  shapeGfx.moveTo(pos.x, pos.y - 6).lineTo(pos.x, pos.y + 6).stroke();
+  shapeGfx.moveTo(pos.x - 6, pos.y).lineTo(pos.x + 6, pos.y)
+          .moveTo(pos.x, pos.y - 6).lineTo(pos.x, pos.y + 6).stroke();
 
   // Snap indicator
   snapGfx.clear();
   if (snapped) {
     const sz = 14 / zoom;
     snapGfx.setStrokeStyle({ width: 1.5, color: 0xffdd00, pixelLine: true } as any);
-    snapGfx.moveTo(snapped.x - sz, snapped.y).lineTo(snapped.x + sz, snapped.y).stroke();
-    snapGfx.moveTo(snapped.x, snapped.y - sz).lineTo(snapped.x, snapped.y + sz).stroke();
+    snapGfx.moveTo(snapped.x - sz, snapped.y).lineTo(snapped.x + sz, snapped.y)
+            .moveTo(snapped.x, snapped.y - sz).lineTo(snapped.x, snapped.y + sz).stroke();
     // Circle indicator
+    snapGfx.beginPath();
     snapGfx.setStrokeStyle({ width: 1, color: 0xffdd00, alpha: 0.5 });
     snapGfx.circle(snapped.x, snapped.y, 18 / zoom).stroke();
   }
@@ -178,6 +176,7 @@ function onWheel(e: WheelEvent) {
   camY = sy - wy * zoom;
   app.stage.position.set(camX, camY);
   app.stage.scale.set(zoom);
+  drawShape(); // refresh snap indicator size (sz = 14/zoom)
 }
 
 onMounted(async () => {

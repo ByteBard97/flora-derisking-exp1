@@ -78,7 +78,8 @@ function drawBed(g: Graphics, nodes: BNode[], fillColor: number, fillAlpha: numb
   }
   g.closePath().fill();
 
-  // Stroke pass (re-draw path)
+  // Stroke pass (re-draw path — beginPath() clears fill path from active path)
+  g.beginPath();
   g.setStrokeStyle({ width: 2, color: strokeColor });
   g.moveTo(nodes[0].x, nodes[0].y);
   for (let i = 1; i <= n; i++) {
@@ -106,6 +107,7 @@ function drawResult(g: Graphics, result: polygonClipping.MultiPolygon) {
   }
   g.fill();
 
+  g.beginPath();
   g.setStrokeStyle({ width: 2, color: 0xffcc00 });
   for (const polygon of result) {
     for (const ring of polygon) {

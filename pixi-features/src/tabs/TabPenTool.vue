@@ -190,9 +190,9 @@ function rebuildHandles() {
     const node = a[i];
     const { x, y, handleIn, handleOut } = node;
 
-    // Connector lines (non-interactive)
+    // Connector lines (non-interactive) — collect all, stroke once per handle
     if (handleOut) {
-      handleLineGfx.moveTo(x, y).lineTo(x + handleOut.x, y + handleOut.y).stroke();
+      handleLineGfx.moveTo(x, y).lineTo(x + handleOut.x, y + handleOut.y);
       const hdot = markRaw(new Graphics(ctxHandle));
       hdot.position.set(x + handleOut.x, y + handleOut.y);
       hdot.scale.set(1 / zoom);
@@ -209,7 +209,7 @@ function rebuildHandles() {
     }
 
     if (handleIn && (mode.value === 'done' || i > 0)) {
-      handleLineGfx.moveTo(x, y).lineTo(x + handleIn.x, y + handleIn.y).stroke();
+      handleLineGfx.moveTo(x, y).lineTo(x + handleIn.x, y + handleIn.y);
       const hdot = markRaw(new Graphics(ctxHandle));
       hdot.position.set(x + handleIn.x, y + handleIn.y);
       hdot.scale.set(1 / zoom);
@@ -249,6 +249,8 @@ function rebuildHandles() {
     });
     anchorsLayer.addChild(dot);
   }
+  // One stroke for all handle connector lines
+  if (a.length > 0) handleLineGfx.stroke();
 }
 
 // ── Preview (rubber-band): rebuilt in ticker every frame when dirty ────────
@@ -594,20 +596,16 @@ onMounted(async () => {
   worldLayer.position.set(camX, camY);
   app.stage.addChild(worldLayer);
 
-  // Draw background grid
+  // Draw background grid — batch all lines then one stroke() to avoid path accumulation
   const gridGfx = markRaw(new Graphics());
-  for (let x = -2000; x <= 2000; x += 40) {
-    (gridGfx as any).setStrokeStyle({ width: 1, color: 0x333333, pixelLine: true });
-    gridGfx.moveTo(x, -2000).lineTo(x, 2000).stroke();
-  }
-  for (let y = -2000; y <= 2000; y += 40) {
-    (gridGfx as any).setStrokeStyle({ width: 1, color: 0x333333, pixelLine: true });
-    gridGfx.moveTo(-2000, y).lineTo(2000, y).stroke();
-  }
+  (gridGfx as any).setStrokeStyle({ width: 1, color: 0x333333, pixelLine: true });
+  for (let x = -2000; x <= 2000; x += 40) gridGfx.moveTo(x, -2000).lineTo(x, 2000);
+  for (let y = -2000; y <= 2000; y += 40) gridGfx.moveTo(-2000, y).lineTo(2000, y);
+  gridGfx.stroke();
   // Origin cross
+  gridGfx.beginPath();
   (gridGfx as any).setStrokeStyle({ width: 1, color: 0x555555, pixelLine: true });
-  gridGfx.moveTo(-20, 0).lineTo(20, 0).stroke();
-  gridGfx.moveTo(0, -20).lineTo(0, 20).stroke();
+  gridGfx.moveTo(-20, 0).lineTo(20, 0).moveTo(0, -20).lineTo(0, 20).stroke();
   worldLayer.addChild(gridGfx);
 
   committedGfx  = markRaw(new Graphics());

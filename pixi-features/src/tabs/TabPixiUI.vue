@@ -17,6 +17,7 @@ const eventLog = ref<string[]>([]);
 
 let app = markRaw({} as Application);
 let logContainer = markRaw({} as Container);
+let logTick: (() => void) | null = null;
 
 function logEvent(msg: string) {
   eventLog.value.unshift(msg);
@@ -158,8 +159,8 @@ onMounted(async () => {
   logContainer.position.set(356, 56);
   root.addChild(logContainer);
 
-  // Update log display each ticker
-  app.ticker.add(() => {
+  // Update log display each ticker — store reference for cleanup
+  logTick = () => {
     logContainer.removeChildren();
     eventLog.value.forEach((entry, i) => {
       const t = markRaw(new Text({
@@ -169,7 +170,8 @@ onMounted(async () => {
       t.position.set(0, i * 16);
       logContainer.addChild(t);
     });
-  });
+  };
+  app.ticker.add(logTick);
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
@@ -188,6 +190,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
+  if (logTick) app.ticker?.remove(logTick);
   app?.destroy(true, { children: true, texture: true, context: true });
 });
 </script>

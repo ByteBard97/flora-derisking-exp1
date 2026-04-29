@@ -15,6 +15,10 @@ const groups: Group[] = [
       { id: 'leader',      label: 'Leader Line',       comp: A('./tabs/TabLeaderLine.vue') },
       { id: 'msdf',        label: 'MSDF Text',         comp: A('./tabs/TabMsdfText.vue') },
       { id: 'bitmap',      label: 'BitmapText',        comp: A('./tabs/TabBitmapText.vue') },
+      { id: 'npr',         label: 'NPR Renderer',      comp: A('./tabs/TabNPRRenderer.vue') },
+      { id: 'tree',        label: 'Tree Symbol',       comp: A('./tabs/TabTreeSymbol.vue') },
+      { id: 'wind',        label: 'Wind Sway',         comp: A('./tabs/TabWindSway.vue') },
+      { id: 'kuwahara',    label: 'Kuwahara Filter',   comp: A('./tabs/TabKuwahara.vue') },
     ],
   },
   {
@@ -35,7 +39,9 @@ const groups: Group[] = [
       { id: 'snap',        label: 'Snapping',          comp: A('./tabs/TabSnapping.vue') },
       { id: 'transform',   label: 'Transform Gizmo',   comp: A('./tabs/TabTransformGizmo.vue') },
       { id: 'spatial',     label: 'Spatial Index',     comp: A('./tabs/TabSpatialIndex.vue') },
-      { id: 'ants',        label: 'Marching Ants',     comp: A('./tabs/TabMarchingAnts.vue') },
+      { id: 'ants',         label: 'Ants · Phase Math',  comp: A('./tabs/TabMarchingAnts.vue') },
+      { id: 'ants-tiling', label: 'Ants · TilingSprite', comp: A('./tabs/TabMarchingAntsTiling.vue') },
+      { id: 'ants-davidfig', label: 'Ants · Davidfig',  comp: A('./tabs/TabMarchingAntsDavidfig.vue') },
     ],
   },
   {
@@ -55,8 +61,10 @@ const groups: Group[] = [
 
 const allTabs = groups.flatMap(g => g.tabs)
 
-const STORAGE_KEY = 'pixi-features-active'
-const active = ref(localStorage.getItem(STORAGE_KEY) ?? 'renderer')
+// v2 key forces a fresh start, clearing any crashed 'viewport' state from the old key
+const STORAGE_KEY = 'pixi-features-active-v2'
+const storedTab = localStorage.getItem(STORAGE_KEY)
+const active = ref(storedTab ?? 'renderer')
 const panelOpen = ref(true)
 const todoOpen  = ref(false)
 

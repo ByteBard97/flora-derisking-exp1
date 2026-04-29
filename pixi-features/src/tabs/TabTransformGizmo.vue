@@ -79,7 +79,7 @@ function getHandlePositions(corners: ReturnType<typeof getOBBCorners>) {
     rot: (() => {
       const tc = mid(tl, tr);
       const angle = obj.rotation;
-      const ux = -Math.sin(angle), uy = -Math.cos(angle);
+      const ux = Math.sin(angle), uy = -Math.cos(angle);
       const dist = 40;
       return { x: tc.x + ux * dist, y: tc.y + uy * dist };
     })(),
@@ -231,8 +231,6 @@ function onPM(e: PointerEvent) {
     if (isCorner || isHoriz) {
       const newW = Math.abs(localX);
       obj.scaleX = Math.max(0.1, newW / obj.w);
-      obj.x = aw.x + (localX > 0 ? 1 : -1) * newW / 2 * Math.cos(obj.rotation) - localY / 2 * Math.sin(obj.rotation);
-      obj.x = aw.x + (newW / 2) * Math.cos(obj.rotation) * (localX > 0 ? 1 : -1);
     }
     if (isCorner || isVert) {
       const newH = Math.abs(localY);
@@ -242,8 +240,8 @@ function onPM(e: PointerEvent) {
     const hw = (obj.w * obj.scaleX) / 2;
     const hh = (obj.h * obj.scaleY) / 2;
     const cos2 = Math.cos(obj.rotation), sin2 = Math.sin(obj.rotation);
-    const signX = (selectedHandle.includes('l') ? 1 : selectedHandle.includes('r') ? -1 : 0);
-    const signY = (selectedHandle.includes('t') ? 1 : selectedHandle.includes('b') ? -1 : 0);
+    const signX = (selectedHandle.includes('l') ? -1 : selectedHandle.includes('r') ? 1 : 0);
+    const signY = (selectedHandle.includes('t') ? -1 : selectedHandle.includes('b') ? 1 : 0);
     const lhx = signX * hw, lhy = signY * hh;
     obj.x = aw.x + lhx * cos2 - lhy * sin2;
     obj.y = aw.y + lhx * sin2 + lhy * cos2;
@@ -336,6 +334,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
+  app.ticker?.remove(onTick);
   const canvas = canvasEl.value;
   canvas?.removeEventListener('pointerdown', onPD);
   canvas?.removeEventListener('pointermove', onPM);

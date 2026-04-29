@@ -1,6 +1,6 @@
 # Flora Derisking — Next Steps
 
-Last updated: 2026-04-28
+Last updated: 2026-04-29 (evening)
 
 ---
 
@@ -19,23 +19,52 @@ The individual feature spikes are mostly proven in `pixi-features/`. The remaini
 
 Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb before we commit to the production architecture. "It loads" is not the same as "it works correctly."
 
-**Not yet visually verified at all:**
-- Marching Ants
-- Viewport
-- Transform Gizmo
-- Spatial Index
-- @pixi/ui
+**Code-reviewed and bug-fixed (2026-04-29):**
+- Marching Ants — fixed: 3 bugs (gap-phase infinite loop, per-segment stroke, path accumulation); added TilingSprite and Davidfig comparison tabs
+- Freehand — fixed: DPR coord scaling, RenderTexture sizing, broken clear button
+- Transform Gizmo — fixed: rotation handle direction (sign flip on sin); scale anchor signs all inverted; plus prior ticker leak fix
+- Pen Tool — fixed: grid O(n²) tessellation (202 strokes→1 batch); handle line accumulation
+- Knife — fixed: endpoint fill isolation after cut line stroke
+- Measure — fixed: vertex fill isolation after guide line stroke
+- Boolean Ops — fixed: fill+stroke path isolation in drawBed() and drawResult()
+- Selection — fixed: fill+stroke collapsed to chained .fill().stroke(); lasso rect
+- Snapping — fixed: grid O(n²) tessellation; crosshair batch; per-vertex path isolation
+- Viewport — fixed: grid border/lines isolation via beginPath()
+- @pixi/ui — reviewed: clean (logTick stored and removed correctly)
+- Spatial Index — reviewed: clean (rbush + GraphicsContext swap pattern correct)
 
-**Verified loading but need deeper testing:**
-- Plant Renderer — 300 plants, leader lines, multi-select drag, LOD thresholds
-- Pen Tool — add/delete vertices, close path, all anchor types, zoom behavior
-- Freehand — auto-smooth quality: does the green bezier overlay look Illustrator-quality?
-- Knife Tool — split algorithm edge cases (same segment, near endpoints, closed paths)
-- Measure Tool — area math accuracy, arc length on curved beds, scale conversion
-- Text Annotation — positioning correct after zoom/pan, drag stability
-- Boolean Ops — edge cases on complex overlapping shapes
-- Selection — group drag, lasso precision, shift+click toggle
-- Snapping — vertex/edge snap at different zoom levels
+Root cause found across all tabs: Pixi v8 `stroke()` clones the active path without clearing it.
+Every tab that called `stroke()` or `fill()` in a loop was accumulating paths into O(n²) tessellation work.
+
+**Visually verified (all passing at 120 FPS, 0 errors):**
+- Transform Gizmo ✅ — scale/rotate handles correct, OBB updates correctly
+- Spatial Index ✅ — 1000 circles + R-tree marquee query working
+- @pixi/ui ✅ — Button, Slider, CheckBox, ScrollBox all in-canvas
+- Viewport ✅ — 300 batched circles, pan/zoom, no crash
+- Pen Tool ✅ — corner/smooth anchors, preview line, full keybinding legend
+- Freehand ✅ — S-curve auto-smooths to 5 bezier segments, Illustrator quality
+- Knife Tool ✅ — "Split! 3 + 3 segments", correct bezier sub-paths colored correctly
+- Boolean Ops ✅ — Union (133pts/5.5ms), Intersect (33pts), Difference (77pts) all correct
+- Measure Tool ✅ — Line Distance "111'" with measurement line
+- Snapping ✅ — Grid/vertex/edge snap controls, polygon + draggable shape; zoom-threshold is `20/zoom` world units (= constant 20px screen), correct
+- Text Annotation ✅ — editable + draggable labels render correctly
+- Dashed Lines ✅ — 8 styles (world-space + pixel-line, world lines thicken on zoom)
+- Selection ✅ — 40 shapes, 120 FPS (interactive selection needs real browser events)
+- Tree Symbol ✅ — 3 styles × 4 species
+- Wind Sway ✅ — 200 plants, 1 draw call, GPU-instanced wind + growth animation
+- Ants · Phase Math ✅ — marching ants via phase-math approach
+- Ants · TilingSprite ✅ — marching ants via TilingSprite (GPU-efficient, rectangles only)
+- Ants · Davidfig ✅ — marching ants via segIdx walk (arbitrary polylines)
+- NPR Renderer ✅ — 4 styles (Technical/Risograph/Watercolor/Sketch) on real plant SVGs
+- Plant Renderer ✅ — 300 botanical SVG plants, beds, LOD2, undo, 120fps
+- Leader Line ✅ — plant + draggable label with geometry-correct leader line
+- MSDF Text ✅ — 300 labels at mixed sizes, crisp at all zoom levels
+- BitmapText ✅ — 200 GPU atlas labels zoom-stable vs blurry regular Text comparison
+
+- Kuwahara Filter ✅ — single-pass isotropic, 105fps, 0 warnings (root cause: GLSL dynamic loop bounds need #version 300 es)
+
+**Still broken (separate agent working on it):**
+- Marching Ants (original TabMarchingAnts.vue)
 
 **Freehand quality specifically** — draw a messy S-curve and a rough bed boundary, release, and assess whether the auto-smoothed bezier looks Illustrator-quality. Tune `fitError` in `pathFit.ts` if needed (currently 4).
 
@@ -99,9 +128,18 @@ Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb 
 
 ---
 
-## Track 2b: Follow-up Research Prompts Still Needed
+## Track 2b: Follow-up Research ✅ DONE (2026-04-29)
 
-Three specific gaps remain after all research passes. These are cheap — fire them off.
+All three follow-up docs written to `flora-studio/docs/research/`:
+- `followup-A-tree-symbol-impl.md` — complete `drawTreeSymbol()` TS for watercolor/sketch/technical styles, seeded-per-coordinate randomness, 4 species call sites
+- `followup-B-multipass-filter.md` — `AnisotropicKuwaharaFilter extends Filter` with 3-pass orchestration, RenderTexture reuse, second-sampler binding, BlurFilter pass
+- `followup-C-world-matrix-uniform.md` — per-frame `uWorldMatrix` ticker wiring, race condition analysis (read viewport.position not worldTransform), write-into-existing-array gotcha
+
+**Next:** implement `drawTreeSymbol()` as a new tab so Annie can see all three styles side by side.
+
+---
+
+## Track 2b (archived): Follow-up Research Prompts (completed above)
 
 ### Follow-up A: `drawTreeSymbol()` TypeScript implementation
 **Gap:** The landscape tree symbol research (doc `landscape-tree-symbol.md`) had **zero runnable code**. We need the TypeScript function to draw plan-view tree symbols with Pixi `Graphics`.
@@ -177,7 +215,26 @@ Three specific gaps remain after all research passes. These are cheap — fire t
 
 ---
 
-## Track 3: NPR Spike Tabs (ready to build once follow-ups land)
+## Track 3: NPR Spike Tabs ✅ DONE (2026-04-29)
+
+`TabNPRRenderer` is complete on branch `feature/tab-npr-renderer`. Implements all four styles:
+- **Technical** — clean vector crosshair symbols
+- **Risograph** — posterize + rotated halftone + misregistration + grain (live sliders)
+- **Watercolor** — radial SDF wash + FBM pigment granulation + drying edge + paper grain
+- **Sketch** — world-stable colored-pencil crosshatch, uWorldMatrix updated per-frame via ticker
+
+Plus: **Wobble background** checkbox applies FBM displacement to the plan diagram.
+
+Filter files: `RisographFilter.ts`, `WatercolorWashFilter.ts`, `WobbleFilter.ts`, `CrosshatchFilter.ts`, `glslNoise.ts` (shared noise utilities).
+
+All styles: 0 console errors, 120 FPS, 25 plants, myopex audit clean.
+
+Key Pixi v8 lessons learned (documented in memory):
+- Uniform interface blocks (UBOs) cause "unbound uniform buffer" — use plain `uniform float` declarations
+- `#version 300 es` is NOT auto-injected — Pixi detects it by presence in source
+- `cacheAsTexture(true)` + filters on same Graphics = invisible rendering
+
+## Track 3b: Former NPR Spike Tabs (superseded by TabNPRRenderer)
 
 ### TabWatercolor
 **What to build:**

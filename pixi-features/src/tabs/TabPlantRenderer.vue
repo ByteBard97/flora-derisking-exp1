@@ -101,8 +101,8 @@ onBeforeUnmount(() => {
       <div>plants: {{ docStore.plants.size }}</div>
       <div>selected: {{ selectionStore.selectedIds.size === 0 ? 'none' : selectionStore.selectedIds.size }}</div>
       <div>undo: {{ docStore.undoStack.length }}/10</div>
-      <div :style="{ color: zoom < 0.05 ? '#f66' : zoom < 0.15 ? '#fa0' : '#0f0' }">
-        zoom: {{ zoom.toFixed(3) }} · lod{{ zoom < 0.05 ? 0 : zoom < 0.15 ? 1 : 2 }}
+      <div :style="{ color: zoom < 0.05 ? '#f66' : zoom < 0.12 ? '#fa0' : '#0f0' }">
+        zoom: {{ zoom.toFixed(3) }} · lod{{ zoom < 0.05 ? 0 : zoom < 0.12 ? 1 : 2 }}
       </div>
     </div>
 
