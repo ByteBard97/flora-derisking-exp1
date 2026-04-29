@@ -79,7 +79,7 @@ function getHandlePositions(corners: ReturnType<typeof getOBBCorners>) {
     rot: (() => {
       const tc = mid(tl, tr);
       const angle = obj.rotation;
-      const ux = -Math.sin(angle), uy = -Math.cos(angle);
+      const ux = Math.sin(angle), uy = -Math.cos(angle);
       const dist = 40;
       return { x: tc.x + ux * dist, y: tc.y + uy * dist };
     })(),
@@ -240,8 +240,8 @@ function onPM(e: PointerEvent) {
     const hw = (obj.w * obj.scaleX) / 2;
     const hh = (obj.h * obj.scaleY) / 2;
     const cos2 = Math.cos(obj.rotation), sin2 = Math.sin(obj.rotation);
-    const signX = (selectedHandle.includes('l') ? 1 : selectedHandle.includes('r') ? -1 : 0);
-    const signY = (selectedHandle.includes('t') ? 1 : selectedHandle.includes('b') ? -1 : 0);
+    const signX = (selectedHandle.includes('l') ? -1 : selectedHandle.includes('r') ? 1 : 0);
+    const signY = (selectedHandle.includes('t') ? -1 : selectedHandle.includes('b') ? 1 : 0);
     const lhx = signX * hw, lhy = signY * hh;
     obj.x = aw.x + lhx * cos2 - lhy * sin2;
     obj.y = aw.y + lhx * sin2 + lhy * cos2;

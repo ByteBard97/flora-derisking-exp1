@@ -28,7 +28,8 @@ function buildScene(n: number) {
   // World boundary + grid on ONE Graphics (single draw call)
   const bg = markRaw(new Graphics());
   bg.rect(0, 0, WORLD_W, WORLD_H).stroke({ width: 2, color: 0x334455 });
-  // Batch all grid lines — add every path first, then one stroke() call
+  // beginPath() isolates the grid from the border rect (stroke() clones but doesn't clear)
+  bg.beginPath();
   for (let x = 100; x < WORLD_W; x += 100) bg.moveTo(x, 0).lineTo(x, WORLD_H);
   for (let y = 100; y < WORLD_H; y += 100) bg.moveTo(0, y).lineTo(WORLD_W, y);
   bg.stroke({ width: 1, color: 0x1a2a3a });

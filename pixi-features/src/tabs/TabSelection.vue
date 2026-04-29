@@ -95,12 +95,11 @@ function drawShape(g: Graphics, kind: string, x: number, y: number, r: number, c
   g.setFillStyle({ color, alpha: 0.7 });
   g.setStrokeStyle({ width: selected ? 2.5 : 1.5, color: selected ? 0xffffff : color });
   if (kind === 'circle') {
-    g.circle(x, y, r).fill();
-    g.circle(x, y, r).stroke();
+    g.circle(x, y, r).fill().stroke();
   } else {
-    g.rect(x - r, y - r, r * 2, r * 2).fill();
-    g.rect(x - r, y - r, r * 2, r * 2).stroke();
+    g.rect(x - r, y - r, r * 2, r * 2).fill().stroke();
     if (selected) {
+      g.beginPath();
       g.setStrokeStyle({ width: 1, color: 0xffffff, alpha: 0.3 });
       g.rect(x - r - 3, y - r - 3, r * 2 + 6, r * 2 + 6).stroke();
     }
@@ -119,8 +118,7 @@ function drawLasso(x0: number, y0: number, x1: number, y1: number) {
   const lw = Math.abs(x1 - x0), lh = Math.abs(y1 - y0);
   lassoGfx.setFillStyle({ color: 0x0070e0, alpha: 0.1 });
   lassoGfx.setStrokeStyle({ width: 1, color: 0x0070e0 });
-  lassoGfx.rect(lx, ly, lw, lh).fill();
-  lassoGfx.rect(lx, ly, lw, lh).stroke();
+  lassoGfx.rect(lx, ly, lw, lh).fill().stroke();
 }
 
 function selectByLasso(x0: number, y0: number, x1: number, y1: number) {

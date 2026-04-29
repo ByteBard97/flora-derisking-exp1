@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, markRaw } from 'vue';
-import { Application, Graphics, RenderTexture, Sprite } from 'pixi.js';
+import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import { getStroke } from 'perfect-freehand';
 import { useFps } from '../shared/useFps';
 import { fitBezierPath, drawFittedPath } from '../lib/pathFit';
@@ -57,21 +57,29 @@ function burnToTexture() {
   liveGfx.clear();
 }
 
+function clearCanvas() {
+  const empty = new Container();
+  app.renderer.render({ container: empty, target: accTex, clear: true });
+  empty.destroy();
+  liveGfx.clear();
+  fittedGfx.clear();
+}
+
 function onPD(e: PointerEvent) {
   if (e.button !== 0) return;
   drawing = true;
   (e.target as HTMLElement).setPointerCapture(e.pointerId);
   const r = canvasEl.value!.getBoundingClientRect();
-  const x = (e.clientX - r.left) * devicePixelRatio;
-  const y = (e.clientY - r.top) * devicePixelRatio;
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
   currentPoints = [[x, y, e.pressure || 0.5]];
 }
 
 function onPM(e: PointerEvent) {
   if (!drawing) return;
   const r = canvasEl.value!.getBoundingClientRect();
-  const x = (e.clientX - r.left) * devicePixelRatio;
-  const y = (e.clientY - r.top) * devicePixelRatio;
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
   currentPoints.push([x, y, e.pressure || 0.5]);
   renderStrokeToGfx(liveGfx, currentPoints);
 }
@@ -111,12 +119,12 @@ onMounted(async () => {
   });
 
   accTex = RenderTexture.create({
-    width: canvas.clientWidth * devicePixelRatio,
-    height: canvas.clientHeight * devicePixelRatio,
+    width: canvas.clientWidth,
+    height: canvas.clientHeight,
+    resolution: devicePixelRatio,
   });
 
   accSprite = markRaw(new Sprite(accTex));
-  accSprite.scale.set(1 / devicePixelRatio);
   liveGfx = markRaw(new Graphics());
   fittedGfx = markRaw(new Graphics());
 
@@ -164,7 +172,7 @@ onUnmounted(() => {
       <label>Thinning <input type="range" v-model.number="thinning" min="-1" max="1" step="0.05" style="width:80px" /> {{ thinning.toFixed(2) }}</label>
       <label>Smooth <input type="range" v-model.number="smoothing" min="0" max="1" step="0.05" style="width:80px" /> {{ smoothing.toFixed(2) }}</label>
       <label>Stream <input type="range" v-model.number="streamline" min="0" max="1" step="0.05" style="width:80px" /> {{ streamline.toFixed(2) }}</label>
-      <button @click="app.renderer.clear({ clearColor: 0x111111, target: accTex })">Clear</button>
+      <button @click="clearCanvas">Clear</button>
       <label>
         <input type="checkbox" v-model="showFitted" /> <span style="color:#00ff88">Show fitted bezier</span>
       </label>

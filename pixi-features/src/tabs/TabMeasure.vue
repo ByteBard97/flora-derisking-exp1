@@ -67,6 +67,7 @@ function drawRubberBand(from: Point, to: Point) {
   guideGfx.clear();
   guideGfx.setStrokeStyle({ pixelLine: true, color: 0xff4444 });
   guideGfx.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke();
+  guideGfx.beginPath();
   guideGfx.setFillStyle({ color: 0xff4444 });
   guideGfx.circle(from.x, from.y, 4).fill();
 }
@@ -85,8 +86,9 @@ function drawAreaGuide(verts: Point[], cur: Point) {
   for (const p of verts.slice(1)) guideGfx.lineTo(p.x, p.y);
   guideGfx.lineTo(cur.x, cur.y);
   guideGfx.stroke();
+  guideGfx.beginPath();
   guideGfx.setFillStyle({ color: 0x00aaff });
-  for (const p of verts) guideGfx.circle(p.x, p.y, 4).fill();
+  for (const p of verts) { guideGfx.circle(p.x, p.y, 4).fill(); guideGfx.beginPath(); }
   if (verts.length >= 2) {
     guideGfx.setFillStyle({ color: 0xffffff, alpha: 0.6 });
     guideGfx.circle(verts[0].x, verts[0].y, 7).fill();

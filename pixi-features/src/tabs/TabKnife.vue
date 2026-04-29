@@ -80,8 +80,10 @@ function onPM(e: PointerEvent) {
   cutGfx.clear();
   cutGfx.setStrokeStyle({ width: 1.5, color: 0xff2222 });
   cutGfx.moveTo(cutStart.x, cutStart.y).lineTo(cutEnd.x, cutEnd.y).stroke();
+  cutGfx.beginPath();
   cutGfx.setFillStyle({ color: 0xff2222 });
   cutGfx.circle(cutStart.x, cutStart.y, 4).fill();
+  cutGfx.beginPath();
   cutGfx.circle(cutEnd.x, cutEnd.y, 4).fill();
 }
 
