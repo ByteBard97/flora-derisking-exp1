@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, markRaw } from 'vue'
-import { Application, Assets, Sprite, Graphics, Container, Filter, Matrix } from 'pixi.js'
+import { Application, Assets, Sprite, Container, Filter, Matrix, Texture } from 'pixi.js'
 import { Viewport } from 'pixi-viewport'
-import { drawTreeSymbol, hashId, SPECIES_COLORS } from '../lib/treeSymbol'
+import { hashId, SPECIES_COLORS } from '../lib/treeSymbol'
 import { useFps } from '../shared/useFps'
 import { RisographFilter, RISOGRAPH_PARAMS } from '../lib/filters/RisographFilter'
 import type { ParamDef } from '../lib/filters/RisographFilter'
@@ -18,7 +18,7 @@ const canvasEl = ref<HTMLCanvasElement>()
 let app = markRaw({} as Application)
 let viewport = markRaw({} as Viewport)
 let plantLayer = markRaw({} as Container)
-let plantGfx: Graphics[] = []
+let plantSprites: Sprite[] = []
 let activeFilters: Filter[] = []
 const paramValues = ref<Record<string, number>>({})
 
@@ -28,35 +28,57 @@ let bg = markRaw({} as Sprite)
 let wobbleFilter = markRaw({} as WobbleFilter)
 const wobbleEnabled = ref(false)
 
-const DEMO_PLANTS = [
-  { id: 'p01', species: 'oak',      x: 120, y: 80,  r: 32 },
-  { id: 'p02', species: 'magnolia', x: 200, y: 140, r: 26 },
-  { id: 'p03', species: 'oak',      x: 310, y: 90,  r: 30 },
-  { id: 'p04', species: 'fern',     x: 80,  y: 200, r: 18 },
-  { id: 'p05', species: 'azalea',   x: 420, y: 160, r: 22 },
-  { id: 'p06', species: 'oak',      x: 520, y: 110, r: 34 },
-  { id: 'p07', species: 'magnolia', x: 600, y: 200, r: 28 },
-  { id: 'p08', species: 'fern',     x: 150, y: 320, r: 20 },
-  { id: 'p09', species: 'azalea',   x: 270, y: 280, r: 24 },
-  { id: 'p10', species: 'oak',      x: 390, y: 260, r: 31 },
-  { id: 'p11', species: 'magnolia', x: 480, y: 320, r: 27 },
-  { id: 'p12', species: 'oak',      x: 680, y: 150, r: 29 },
-  { id: 'p13', species: 'fern',     x: 740, y: 270, r: 19 },
-  { id: 'p14', species: 'azalea',   x: 620, y: 340, r: 23 },
-  { id: 'p15', species: 'oak',      x: 200, y: 420, r: 33 },
-  { id: 'p16', species: 'magnolia', x: 350, y: 400, r: 25 },
-  { id: 'p17', species: 'fern',     x: 500, y: 410, r: 21 },
-  { id: 'p18', species: 'oak',      x: 700, y: 380, r: 30 },
-  { id: 'p19', species: 'azalea',   x: 820, y: 180, r: 22 },
-  { id: 'p20', species: 'oak',      x: 110, y: 530, r: 32 },
-  { id: 'p21', species: 'magnolia', x: 280, y: 560, r: 26 },
-  { id: 'p22', species: 'fern',     x: 430, y: 540, r: 20 },
-  { id: 'p23', species: 'azalea',   x: 560, y: 500, r: 24 },
-  { id: 'p24', species: 'oak',      x: 730, y: 530, r: 31 },
-  { id: 'p25', species: 'magnolia', x: 840, y: 440, r: 27 },
-] as const
+// ---------------------------------------------------------------------------
+// ParsedPlant type — replaces the static DEMO_PLANTS array
+// ---------------------------------------------------------------------------
 
-type SpeciesName = 'oak' | 'magnolia' | 'azalea' | 'fern'
+interface ParsedPlant {
+  id: string
+  species: 'oak' | 'magnolia' | 'azalea' | 'fern'
+  cx: number
+  cy: number
+  r: number
+}
+
+let parsedPlants: ParsedPlant[] = []
+
+// ---------------------------------------------------------------------------
+// SVG parsing helpers
+// ---------------------------------------------------------------------------
+
+const SPRITE_RESOLUTION = 512
+
+async function svgToTexture(url: string): Promise<Texture> {
+  const img = new Image()
+  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = url })
+  const canvas = document.createElement('canvas')
+  canvas.width = SPRITE_RESOLUTION
+  canvas.height = SPRITE_RESOLUTION
+  canvas.getContext('2d')!.drawImage(img, 0, 0, SPRITE_RESOLUTION, SPRITE_RESOLUTION)
+  return Texture.from(canvas)
+}
+
+async function parsePlantsFromSvg(): Promise<ParsedPlant[]> {
+  const resp = await fetch('/demo-landscape.svg')
+  const text = await resp.text()
+  const re = /<circle[^>]+cx="([^"]+)"[^>]+cy="([^"]+)"[^>]+r="([^"]+)"/g
+  const plants: ParsedPlant[] = []
+  let m: RegExpExecArray | null
+  let idx = 0
+  while ((m = re.exec(text)) !== null) {
+    const r = parseFloat(m[3])
+    if (r < 8) continue
+    const cx = parseFloat(m[1]), cy = parseFloat(m[2])
+    const species: ParsedPlant['species'] =
+      r < 12 ? 'fern' : r < 16 ? 'azalea' : r < 22 ? 'magnolia' : 'oak'
+    plants.push({ id: `p${idx++}`, species, cx, cy, r })
+  }
+  return plants
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
 
 function hexToRgb(hex: number): [number, number, number] {
   return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255]
@@ -88,9 +110,13 @@ function updateCrosshatchMatrix() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Style application
+// ---------------------------------------------------------------------------
+
 function applyStyle(style: StyleId) {
-  for (const gfx of plantGfx) {
-    gfx.filters = []
+  for (const sprite of plantSprites) {
+    sprite.filters = []
   }
   activeFilters = []
   // Remove crosshatch ticker if present — add it back for sketch
@@ -100,25 +126,25 @@ function applyStyle(style: StyleId) {
     for (const p of RISOGRAPH_PARAMS) {
       if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
     }
-    for (const gfx of plantGfx) {
+    for (const sprite of plantSprites) {
       const f = new RisographFilter()
       applyParamsToFilter(f)
-      gfx.filters = [f]
+      sprite.filters = [f]
       activeFilters.push(f)
     }
   } else if (style === 'watercolor') {
-    DEMO_PLANTS.forEach((plant, i) => {
-      const gfx = plantGfx[i]
-      const color = SPECIES_COLORS[plant.species as SpeciesName]
+    parsedPlants.forEach((plant, i) => {
+      const sprite = plantSprites[i]
+      const color = SPECIES_COLORS[plant.species]
       const rgb = hexToRgb(color)
       const f = new WatercolorWashFilter(rgb)
-      gfx.filters = [f]
+      sprite.filters = [f]
     })
   } else if (style === 'sketch') {
     const IDENTITY = new Float32Array([1,0,0, 0,1,0, 0,0,1])
-    DEMO_PLANTS.forEach((plant, i) => {
-      const gfx = plantGfx[i]
-      const color = SPECIES_COLORS[plant.species as SpeciesName]
+    parsedPlants.forEach((plant, i) => {
+      const sprite = plantSprites[i]
+      const color = SPECIES_COLORS[plant.species]
       const luma = speciesLuma(color)
       const tone = 1 - luma
       const [r, g, b] = hexToRgb(color)
@@ -126,7 +152,7 @@ function applyStyle(style: StyleId) {
       const f = new CrosshatchFilter(tone, hatchColor, hashId(plant.id) * 0.0001)
       // Set identity world matrix initially; ticker updates it each frame
       ;(f.resources.hatchUniforms as any).uniforms.uWorldMatrix = IDENTITY
-      gfx.filters = [f]
+      sprite.filters = [f]
       activeFilters.push(f)
     })
     // Start ticker to update uWorldMatrix each frame
@@ -142,11 +168,11 @@ function onSliderInput(uniform: string, value: number) {
 }
 
 watch(activeStyle, (style) => {
-  if (plantGfx.length > 0) applyStyle(style)
+  if (plantSprites.length > 0) applyStyle(style)
 })
 
 watch(wobbleEnabled, (enabled) => {
-  if (plantGfx.length === 0) return  // not mounted yet
+  if (plantSprites.length === 0) return  // not mounted yet
   bg.filters = enabled ? [wobbleFilter] : []
 })
 
@@ -173,27 +199,47 @@ onMounted(async () => {
   viewport.drag().wheel({ smooth: 8 }).decelerate({ friction: 0.93 }).clampZoom({ minScale: 0.1, maxScale: 10 })
   app.stage.addChild(viewport as any)
 
-  const bgTex = await Assets.load('/demo-landscape.png')
-  bg = markRaw(new Sprite(bgTex))
+  const bgTexture = await Assets.load({
+    src: '/demo-landscape.svg',
+    data: { resolution: 3, autoGenerateMipmaps: true },
+  })
+  bg = markRaw(new Sprite(bgTexture))
   bg.width = 880
   bg.height = 701
   viewport.addChild(bg as any)
-
   wobbleFilter = markRaw(new WobbleFilter())
   // Don't apply yet — wobbleEnabled watcher does it
 
   plantLayer = markRaw(new Container())
   viewport.addChild(plantLayer as any)
 
-  for (const plant of DEMO_PLANTS) {
-    const gfx = markRaw(new Graphics())
-    const color = SPECIES_COLORS[plant.species as SpeciesName]
-    drawTreeSymbol(gfx, 0, 0, plant.r, color, 'technical', hashId(plant.id))
-    gfx.x = plant.x
-    gfx.y = plant.y
-    plantLayer.addChild(gfx as any)
-    plantGfx.push(gfx)
+  // Load plant SVG sprites (one texture per species)
+  const speciesTextures = new Map<string, Texture>()
+  await Promise.all(
+    (['oak', 'magnolia', 'azalea', 'fern'] as const).map(async s => {
+      speciesTextures.set(s, await svgToTexture(`/sprites/${s}.svg`))
+    })
+  )
+
+  // Parse real plant positions from the SVG
+  parsedPlants = await parsePlantsFromSvg()
+
+  // Create one Sprite per plant
+  for (const plant of parsedPlants) {
+    const texture = speciesTextures.get(plant.species) ?? Texture.WHITE
+    const sprite = markRaw(new Sprite(texture))
+    sprite.anchor.set(0.5)
+    sprite.width = plant.r * 2
+    sprite.height = plant.r * 2
+    sprite.x = plant.cx
+    sprite.y = plant.cy
+    plantLayer.addChild(sprite as any)
+    plantSprites.push(sprite)
   }
+
+  // Fit the full plan to the canvas on load
+  viewport.fit()
+  viewport.moveCenter(440, 350)
 })
 
 onUnmounted(() => {
