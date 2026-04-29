@@ -36,7 +36,7 @@ Every tab in `pixi-features/` needs to be gone through with a fine-toothed comb 
 Root cause found across all tabs: Pixi v8 `stroke()` clones the active path without clearing it.
 Every tab that called `stroke()` or `fill()` in a loop was accumulating paths into O(n²) tessellation work.
 
-**Visually verified 2026-04-29 (all passing at 120 FPS, 0 errors):**
+**Visually verified (all passing at 120 FPS, 0 errors):**
 - Transform Gizmo ✅ — scale/rotate handles correct, OBB updates correctly
 - Spatial Index ✅ — 1000 circles + R-tree marquee query working
 - @pixi/ui ✅ — Button, Slider, CheckBox, ScrollBox all in-canvas
@@ -46,7 +46,7 @@ Every tab that called `stroke()` or `fill()` in a loop was accumulating paths in
 - Knife Tool ✅ — "Split! 3 + 3 segments", correct bezier sub-paths colored correctly
 - Boolean Ops ✅ — Union (133pts/5.5ms), Intersect (33pts), Difference (77pts) all correct
 - Measure Tool ✅ — Line Distance "111'" with measurement line
-- Snapping ✅ — Grid/vertex/edge snap controls, polygon + draggable shape
+- Snapping ✅ — Grid/vertex/edge snap controls, polygon + draggable shape; zoom-threshold is `20/zoom` world units (= constant 20px screen), correct
 - Text Annotation ✅ — editable + draggable labels render correctly
 - Dashed Lines ✅ — 8 styles (world-space + pixel-line, world lines thicken on zoom)
 - Selection ✅ — 40 shapes, 120 FPS (interactive selection needs real browser events)
@@ -56,10 +56,14 @@ Every tab that called `stroke()` or `fill()` in a loop was accumulating paths in
 - Ants · TilingSprite ✅ — marching ants via TilingSprite (GPU-efficient, rectangles only)
 - Ants · Davidfig ✅ — marching ants via segIdx walk (arbitrary polylines)
 - NPR Renderer ✅ — 4 styles (Technical/Risograph/Watercolor/Sketch) on real plant SVGs
+- Plant Renderer ✅ — 300 botanical SVG plants, beds, LOD2, undo, 120fps
+- Leader Line ✅ — plant + draggable label with geometry-correct leader line
+- MSDF Text ✅ — 300 labels at mixed sizes, crisp at all zoom levels
+- BitmapText ✅ — 200 GPU atlas labels zoom-stable vs blurry regular Text comparison
 
 **Still broken (separate agent working on it):**
 - Marching Ants (original TabMarchingAnts.vue)
-- Snapping — vertex/edge snap at different zoom levels
+- Kuwahara Filter — multi-pass cross-context WebGL program reference bug; tab present but broken
 
 **Freehand quality specifically** — draw a messy S-curve and a rough bed boundary, release, and assess whether the auto-smoothed bezier looks Illustrator-quality. Tune `fitError` in `pathFit.ts` if needed (currently 4).
 
