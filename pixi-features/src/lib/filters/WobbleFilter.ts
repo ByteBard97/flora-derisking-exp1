@@ -1,4 +1,8 @@
 import { Filter, GlProgram, UniformGroup, defaultFilterVert } from 'pixi.js'
+import { GLSL_HASH21_VNOISE } from './glslNoise'
+
+const DEFAULT_SCALE = 6.0
+const DEFAULT_BASE_FREQUENCY = 0.02
 
 const WOBBLE_FRAG = `
 precision highp float;
@@ -11,21 +15,8 @@ uniform vec4 uInputSize;
 
 uniform float uScale;
 uniform vec2  uBaseFrequency;
-
-float hash21(vec2 p) {
-  p = fract(p * vec2(127.1, 311.7));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
-}
-
-float vnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i), b = hash21(i + vec2(1,0));
-  float c = hash21(i + vec2(0,1)), d = hash21(i + vec2(1,1));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
+` + GLSL_HASH21_VNOISE + `
+// 3-octave fbm — lightweight for background displacement
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
   for (int i = 0; i < 3; i++) {
@@ -50,8 +41,8 @@ void main() {
 export class WobbleFilter extends Filter {
   constructor() {
     const wobbleUniforms = new UniformGroup({
-      uScale:         { value: 6.0,                           type: 'f32' },
-      uBaseFrequency: { value: new Float32Array([0.02, 0.02]), type: 'vec2<f32>' },
+      uScale:         { value: DEFAULT_SCALE,                                      type: 'f32' },
+      uBaseFrequency: { value: new Float32Array([DEFAULT_BASE_FREQUENCY, DEFAULT_BASE_FREQUENCY]), type: 'vec2<f32>' },
     })
     super({
       glProgram: GlProgram.from({ vertex: defaultFilterVert, fragment: WOBBLE_FRAG }),

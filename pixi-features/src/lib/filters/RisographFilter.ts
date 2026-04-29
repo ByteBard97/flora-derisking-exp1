@@ -79,25 +79,25 @@ void main() {
 }
 `
 
-export class RisographFilter extends Filter {
-  constructor() {
-    const risoUniforms = new UniformGroup({
-      uHalftoneScale:   { value: 4.0,                         type: 'f32' },
-      uMisregistration: { value: new Float32Array([1.5, 1.0]), type: 'vec2<f32>' },
-      uGrainStrength:   { value: 0.08,                        type: 'f32' },
-    })
-    super({
-      glProgram: GlProgram.from({
-        vertex: defaultFilterVert,
-        fragment: RISO_FRAG,
-      }),
-      resources: { risoUniforms },
-    })
-  }
-}
-
 export const RISOGRAPH_PARAMS: ParamDef[] = [
   { label: 'Halftone Scale',  uniform: 'uHalftoneScale',   min: 1,  max: 10,  step: 0.5,  default: 4,    target: 'plant' },
   { label: 'Misregistration', uniform: 'uMisregistration', min: 0,  max: 4,   step: 0.1,  default: 1.5,  target: 'plant' },
   { label: 'Grain',           uniform: 'uGrainStrength',   min: 0,  max: 0.3, step: 0.01, default: 0.08, target: 'plant' },
 ]
+
+// Derive UniformGroup defaults from RISOGRAPH_PARAMS to keep them in sync.
+const [htParam, misParam, grainParam] = RISOGRAPH_PARAMS
+
+export class RisographFilter extends Filter {
+  constructor() {
+    const risoUniforms = new UniformGroup({
+      uHalftoneScale:   { value: htParam.default,                                      type: 'f32' },
+      uMisregistration: { value: new Float32Array([misParam.default, 1.0]),            type: 'vec2<f32>' },
+      uGrainStrength:   { value: grainParam.default,                                   type: 'f32' },
+    })
+    super({
+      glProgram: GlProgram.from({ vertex: defaultFilterVert, fragment: RISO_FRAG }),
+      resources: { risoUniforms },
+    })
+  }
+}
