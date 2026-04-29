@@ -6,6 +6,15 @@ import { hashId, SPECIES_COLORS } from '../lib/treeSymbol'
 import { useFps } from '../shared/useFps'
 import { RisographFilter, RISOGRAPH_PARAMS } from '../lib/filters/RisographFilter'
 import type { ParamDef } from '../lib/filters/RisographFilter'
+
+const WATERCOLOR_PARAMS: ParamDef[] = [
+  { label: 'Wetness', uniform: 'uWetness', min: 0, max: 1, step: 0.05, default: 0.75, target: 'plant' },
+]
+
+const SKETCH_PARAMS: ParamDef[] = [
+  { label: 'Line Spacing', uniform: 'uLineSpacing', min: 2,   max: 20,  step: 0.5, default: 8,  target: 'plant' },
+  { label: 'Line Width',   uniform: 'uLineWidth',   min: 0.3, max: 3,   step: 0.1, default: 1.0, target: 'plant' },
+]
 import { WobbleFilter } from '../lib/filters/WobbleFilter'
 import { WatercolorWashFilter } from '../lib/filters/WatercolorWashFilter'
 import { CrosshatchFilter } from '../lib/filters/CrosshatchFilter'
@@ -133,14 +142,22 @@ function applyStyle(style: StyleId) {
       activeFilters.push(f)
     }
   } else if (style === 'watercolor') {
+    for (const p of WATERCOLOR_PARAMS) {
+      if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
+    }
     parsedPlants.forEach((plant, i) => {
       const sprite = plantSprites[i]
       const color = SPECIES_COLORS[plant.species]
       const rgb = hexToRgb(color)
       const f = new WatercolorWashFilter(rgb)
+      ;(f.resources.watercolorUniforms as any).uniforms.uWetness = paramValues.value.uWetness ?? 0.75
       sprite.filters = [f]
+      activeFilters.push(f)
     })
   } else if (style === 'sketch') {
+    for (const p of SKETCH_PARAMS) {
+      if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
+    }
     const IDENTITY = new Float32Array([1,0,0, 0,1,0, 0,0,1])
     parsedPlants.forEach((plant, i) => {
       const sprite = plantSprites[i]
@@ -150,8 +167,10 @@ function applyStyle(style: StyleId) {
       const [r, g, b] = hexToRgb(color)
       const hatchColor: [number, number, number] = [r * 0.55, g * 0.55, b * 0.55]
       const f = new CrosshatchFilter(tone, hatchColor, hashId(plant.id) * 0.0001)
-      // Set identity world matrix initially; ticker updates it each frame
-      ;(f.resources.hatchUniforms as any).uniforms.uWorldMatrix = IDENTITY
+      const u = (f.resources.hatchUniforms as any).uniforms
+      u.uWorldMatrix = IDENTITY
+      u.uLineSpacing = paramValues.value.uLineSpacing ?? 8
+      u.uLineWidth   = paramValues.value.uLineWidth   ?? 1
       sprite.filters = [f]
       activeFilters.push(f)
     })
@@ -163,7 +182,15 @@ function applyStyle(style: StyleId) {
 function onSliderInput(uniform: string, value: number) {
   paramValues.value[uniform] = value
   for (const f of activeFilters) {
-    if (f instanceof RisographFilter) applyParamsToFilter(f)
+    if (f instanceof RisographFilter) {
+      applyParamsToFilter(f)
+    } else if (f instanceof WatercolorWashFilter) {
+      ;(f.resources.watercolorUniforms as any).uniforms.uWetness = value
+    } else if (f instanceof CrosshatchFilter) {
+      const u = (f.resources.hatchUniforms as any).uniforms
+      if (uniform === 'uLineSpacing') u.uLineSpacing = value
+      if (uniform === 'uLineWidth')   u.uLineWidth   = value
+    }
   }
 }
 
@@ -274,13 +301,32 @@ onUnmounted(() => {
         <div class="divider" />
         <label v-for="p in RISOGRAPH_PARAMS" :key="p.uniform" class="slider-row">
           <span class="slider-label">{{ p.label }}</span>
-          <input
-            type="range"
-            :min="p.min" :max="p.max" :step="p.step"
+          <input type="range" :min="p.min" :max="p.max" :step="p.step"
             :value="paramValues[p.uniform] ?? p.default"
             @input="onSliderInput(p.uniform, +($event.target as HTMLInputElement).value)"
-            style="width: 90px"
-          />
+            style="width: 90px" />
+          <span class="slider-val">{{ (paramValues[p.uniform] ?? p.default).toFixed(2) }}</span>
+        </label>
+      </template>
+      <template v-if="activeStyle === 'watercolor'">
+        <div class="divider" />
+        <label v-for="p in WATERCOLOR_PARAMS" :key="p.uniform" class="slider-row">
+          <span class="slider-label">{{ p.label }}</span>
+          <input type="range" :min="p.min" :max="p.max" :step="p.step"
+            :value="paramValues[p.uniform] ?? p.default"
+            @input="onSliderInput(p.uniform, +($event.target as HTMLInputElement).value)"
+            style="width: 90px" />
+          <span class="slider-val">{{ (paramValues[p.uniform] ?? p.default).toFixed(2) }}</span>
+        </label>
+      </template>
+      <template v-if="activeStyle === 'sketch'">
+        <div class="divider" />
+        <label v-for="p in SKETCH_PARAMS" :key="p.uniform" class="slider-row">
+          <span class="slider-label">{{ p.label }}</span>
+          <input type="range" :min="p.min" :max="p.max" :step="p.step"
+            :value="paramValues[p.uniform] ?? p.default"
+            @input="onSliderInput(p.uniform, +($event.target as HTMLInputElement).value)"
+            style="width: 90px" />
           <span class="slider-val">{{ (paramValues[p.uniform] ?? p.default).toFixed(2) }}</span>
         </label>
       </template>
