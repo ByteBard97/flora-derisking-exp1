@@ -109,6 +109,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
+  Assets.unload(FONT_PATH)
   app?.destroy(true);
   app = null;
 });

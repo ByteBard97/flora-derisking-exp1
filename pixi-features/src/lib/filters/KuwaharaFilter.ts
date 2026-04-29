@@ -14,7 +14,9 @@
  */
 import { Filter, GlProgram, UniformGroup, defaultFilterVert } from 'pixi.js'
 
-const KUWAHARA_FRAG = `
+// #version 300 es required: shader uses dynamic loop bounds (uRadius is a uniform).
+// Without it Pixi compiles as GLSL ES 1.0 where dynamic bounds are rejected.
+const KUWAHARA_FRAG = `#version 300 es
 precision highp float;
 
 in  vec2 vTextureCoord;

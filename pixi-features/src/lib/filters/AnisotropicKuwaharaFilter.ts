@@ -21,7 +21,9 @@ import type { FilterSystem, RenderSurface } from 'pixi.js'
 // Pass 1: Sobel structure tensor
 // Writes (Jxx, Jyy, Jxy, 1) into RGBA.
 // ---------------------------------------------------------------------------
-const SOBEL_FRAG = `
+// #version 300 es — both passes use in/out/texture() (ES 3.00 features)
+// and KUWAHARA_FRAG has dynamic loop bounds derived from uniforms.
+const SOBEL_FRAG = `#version 300 es
 precision highp float;
 
 in  vec2 vTextureCoord;
@@ -54,7 +56,7 @@ void main() {
 // Pass 3: Anisotropic Kuwahara
 // Flat uniform declarations — no interface block (UBO blocks break Pixi filters).
 // ---------------------------------------------------------------------------
-const KUWAHARA_FRAG = `
+const KUWAHARA_FRAG = `#version 300 es
 precision highp float;
 
 in  vec2 vTextureCoord;

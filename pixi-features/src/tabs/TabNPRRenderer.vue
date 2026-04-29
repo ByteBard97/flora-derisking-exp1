@@ -271,6 +271,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   app.ticker?.remove(updateCrosshatchMatrix)
+  Assets.unload('/demo-landscape.svg')
   app?.destroy(true, { children: true, texture: true, context: true })
 })
 </script>
