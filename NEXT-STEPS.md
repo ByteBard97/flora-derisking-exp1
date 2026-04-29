@@ -4,6 +4,20 @@ Last updated: 2026-04-29 (evening)
 
 ---
 
+## North Star
+
+**The new Flora webapp will be built in `/Users/ceres/Desktop/flora/flora-studio`.**
+
+`flora-cad` is historical/documentation only — do not build there.
+
+The purpose of this derisking repo is to produce a clean, proven reference implementation of every feature we need, so we can then design the right architecture for `flora-studio`. That architecture will integrate:
+- All proven Pixi.js feature spikes from `pixi-features/`
+- The applicable patterns from RapiD (iD editor) — scene graph, layer system, feature/mode architecture
+
+**When pixi-features is clean and every feature has a clear winning implementation, we stop and design the flora-studio architecture. Then we build.**
+
+---
+
 ## Status
 
 The individual feature spikes are mostly proven in `pixi-features/`. The remaining work falls into four tracks:
