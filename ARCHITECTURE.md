@@ -521,12 +521,18 @@ Pixi's normal scene graph is designed for.
    from firing; `viewport.plugins.pause('drag')` prevents pixi-viewport panning. Verified in
    `pixi-features/src/tabs/TabLeaderLine.vue`.
 
-2. **MSDF text at zoom**: BitmapText looks soft at 5-10× zoom. Decision: is soft text acceptable,
-   or do we need MSDF font atlas generation? The export answer (outline text to paths) is separate
-   from this — export uses opentype.js regardless of what the canvas renders. → Spike needed (TODO #5).
+2. **MSDF text at zoom**: ✅ Resolved 2026-04-29. `TabMsdfText` spike confirmed MSDF BitmapText stays
+   crisp at all zoom levels (5-10× verified). Use MSDF font atlases generated at build time (see
+   `fonts-and-text.md`). Regular `Text` gets blurry at zoom >1; BitmapText stays crisp. Decision:
+   MSDF for all plant labels.
 
-3. **LOD thresholds**: exact zoom values for lod=0/1/2 to be determined from measurement at 300
-   plants. Guess: lod=0 < 0.05, lod=1 < 0.12, lod=2 ≥ 0.12.
+3. **LOD thresholds**: ✅ Confirmed 2026-04-29 at 300 plants.
+   - lod=0 (invisible): zoom < 0.05 — effectively unreachable; `pixi-viewport` minScale=0.05 clamps
+     zoom at the full-plan-overview level, so lod=0 is a safety net never triggered in practice.
+   - lod=1 (circles only): 0.05 ≤ zoom < 0.12 — 300 colored circles, 120fps, no sprites/labels.
+     At zoom=0.05 a 0.5" radius plant = 2.4px screen — botanical detail invisible, circle sufficient.
+   - lod=2 (full detail): zoom ≥ 0.12 — botanical SVG sprite + BitmapText label + leader line.
+   Implemented in `PixiRenderer.ts` constants `LOD_INVISIBLE=0.05`, `LOD_SIMPLE=0.12`.
 
 4. **Bed stroke alignment at export**: bezier offsetting with paper.js needs to be tested against
    real bed shapes. If paper.js offsetPath() introduces artifacts on tight curves, fall back to
