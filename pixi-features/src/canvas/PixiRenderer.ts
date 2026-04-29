@@ -25,8 +25,11 @@ const ARROW_LENGTH_FACTOR = 10;
 const ARROW_HALF_WIDTH_FACTOR = 3;
 
 // LOD thresholds — tuned empirically for 300 plants
-const LOD_INVISIBLE = 0.05;  // zoom below this: container hidden
-const LOD_SIMPLE    = LOD_INVISIBLE;  // lod1 (circle-only) disabled — re-enable with real perf data
+// At zoom < LOD_INVISIBLE: plant circles are < 2px screen radius — hide entirely
+// At zoom < LOD_SIMPLE:    botanical sprite + label are < 7px — colored circle sufficient
+// At zoom >= LOD_SIMPLE:   full detail (circle + sprite + label + leader line)
+const LOD_INVISIBLE = 0.05;
+const LOD_SIMPLE    = 0.12;
 
 const SPECIES_COLORS: Record<string, number> = {
   oak: 0x4a7c59,
