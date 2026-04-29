@@ -420,6 +420,100 @@ has a fixed 8.5"×11" page).
 
 ---
 
+## NPR Rendering Integration (Resolved 2026-04-29)
+
+All questions from Track 4 answered by the derisking experiments. Recording decisions here.
+
+### Does NPR affect layer architecture?
+
+**Answer: No for structure; yes for filter attachment.**
+
+The layer hierarchy (siteAnalysis → beds → groundcover → understory → canopy → annotations → ui)
+is unchanged. NPR is a rendering *mode* applied on top of the existing structure, not a parallel hierarchy.
+
+**Filter attachment strategy (proven in TabNPRRenderer):**
+
+| Filter | Applied to | Why |
+|--------|-----------|-----|
+| `WatercolorWashFilter` | each layer Container | wash blends across all plants in the layer together |
+| `CrosshatchFilter` | each layer Container | world-stable hatching must tile continuously across the layer |
+| `WobbleFilter` | background SVG Sprite | wobbles the site plan diagram |
+| `WobblyCircleFilter` | each `PlantFeature.container` | per-plant: each circle needs its own random wobble seed |
+| `RisographFilter` | each layer Container | posterize + halftone applied to the layer as a whole |
+
+Filter chains are set once at NPR mode change, not per-frame. The `CrosshatchFilter`'s
+`uWorldMatrix` uniform must be updated every frame in the ticker (see followup-C research doc).
+
+**Why container-level, not stage-level?**
+Applying one filter to the whole stage would flatten everything into one pass. Container-level
+lets each layer retain independent alpha compositing — canopy plants composite over understory
+correctly before the NPR pass.
+
+**`RenderLayer`:** Pixi v8's `RenderLayer` API is for advanced compositing (e.g., separate depth
+buffers). We don't need it. Standard `Container.filters = [...]` is sufficient.
+
+### NPR rendering modes
+
+Three modes proven in `TabNPRRenderer`:
+
+| Mode | Active filters | Notes |
+|------|---------------|-------|
+| `technical` | none (clean vector) | default canvas mode |
+| `watercolor` | WatercolorWashFilter per layer + WobblyCircleFilter per plant | `uSeed` set per-plant for variety |
+| `sketch` | CrosshatchFilter per layer + uWorldMatrix ticker update | species-specific presets per plant |
+| `risograph` | RisographFilter per layer | per-layer color variant |
+
+Mode is stored in Pinia: `canvasStore.nprMode: 'technical' | 'watercolor' | 'sketch' | 'risograph'`.
+On mode change: `PixiRenderer.setNPRMode(mode)` swaps filter arrays on each layer container.
+
+The `WobbleFilter` (background SVG wobble) is controlled by a separate boolean: `canvasStore.wobbleBackground`.
+
+### Data model additions required
+
+**Plant** (additions to existing backend model):
+
+```ts
+interface Plant {
+  // ... existing backend fields ...
+  
+  // Canvas-only, not persisted to backend:
+  labelOffset?: { x: number; y: number }  // world inches, relative to plant center
+                                           // null = default position (right of circle)
+}
+```
+
+`growthFactor` is **not** in the data model — it's a per-session animation state managed
+entirely by `PlantFeature`. It starts at 0 on session load and ramps to 1 via the critically-damped
+spring shader. On reload it starts at 0 again (growth plays on every session start — it's an effect,
+not persistent state).
+
+**Bed** (additions to existing backend model):
+
+```ts
+interface Bed {
+  // ... existing backend fields (path: BezierPath, materialType: string, ...) ...
+  
+  // fillStyle and strokeStyle are canvas rendering params, backend-agnostic:
+  fillStyle?:   'solid' | 'hatched' | 'empty'   // default: 'solid'
+  fillColor?:   string                            // hex, default from materialType lookup
+  strokeColor?: string
+  strokeWeight?: number                           // world inches
+}
+```
+
+NPR style params (kernel size, wetness, crosshatch angle) are **not** per-bed or per-plant. They
+are global canvas settings in `canvasStore.nprParams`. Annie adjusts them once for the whole design,
+not per-plant.
+
+### How layers map to Pixi v8 `RenderLayer`
+
+**They don't.** Standard named `Container` children of `origin` are all we need. The Pixi v8
+`RenderLayer` API is for render ordering tricks and advanced compositing that doesn't apply to a
+fixed-page CAD tool. The named containers (groundcover, understory, canopy, etc.) are exactly what
+Pixi's normal scene graph is designed for.
+
+---
+
 ## Open Questions (Pre-Build Blockers)
 
 1. ~~**Label drag conflict**~~ — **Resolved 2026-04-22.** Label as child of plant container
@@ -437,6 +531,16 @@ has a fixed 8.5"×11" page).
 4. **Bed stroke alignment at export**: bezier offsetting with paper.js needs to be tested against
    real bed shapes. If paper.js offsetPath() introduces artifacts on tight curves, fall back to
    center-aligned stroke (accept the 1pt dimension error) or double-width + clip mask.
+
+5. **AnisotropicKuwahara multi-pass filter**: `TabKuwahara.vue` is currently disabled with a
+   "multi-pass cross-context program bug". Likely cause: `GlProgram.from({ vertex, fragment })` with
+   the same source is cached; two `Filter` instances sharing the same `GlProgram` object may conflict
+   when `filterManager.applyFilter()` is called on each separately. Workaround to investigate:
+   (a) use unique program source per filter (append a comment), or
+   (b) lazy-initialize the inner filters inside `apply()` rather than in the constructor, so they
+   compile fresh against the renderer that's actually calling `apply()`.
+   This is a nice-to-have (watercolor pass in TabNPRRenderer already provides a simpler painterly
+   effect). Investigate after production baseline is working.
 
 ## Resolved Questions
 
