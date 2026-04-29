@@ -25,32 +25,25 @@ const WORLD_H = 2000;
 function buildScene(n: number) {
   contentLayer.removeChildren();
 
-  // World boundary
-  const border = markRaw(new Graphics());
-  border.setStrokeStyle({ width: 2, color: 0x334455 });
-  border.rect(0, 0, WORLD_W, WORLD_H).stroke();
-  contentLayer.addChild(border);
+  // World boundary + grid on ONE Graphics (single draw call)
+  const bg = markRaw(new Graphics());
+  bg.rect(0, 0, WORLD_W, WORLD_H).stroke({ width: 2, color: 0x334455 });
+  // Batch all grid lines — add every path first, then one stroke() call
+  for (let x = 100; x < WORLD_W; x += 100) bg.moveTo(x, 0).lineTo(x, WORLD_H);
+  for (let y = 100; y < WORLD_H; y += 100) bg.moveTo(0, y).lineTo(WORLD_W, y);
+  bg.stroke({ width: 1, color: 0x1a2a3a });
+  contentLayer.addChild(bg);
 
-  // Grid
-  const grid = markRaw(new Graphics());
-  grid.setStrokeStyle({ width: 1, color: 0x1a2a3a } as any);
-  for (let x = 0; x <= WORLD_W; x += 100) grid.moveTo(x, 0).lineTo(x, WORLD_H).stroke();
-  for (let y = 0; y <= WORLD_H; y += 100) grid.moveTo(0, y).lineTo(WORLD_W, y).stroke();
-  contentLayer.addChild(grid);
-
-  // Random plant circles
+  // All circles on ONE Graphics — batched, single draw call regardless of n
+  const COLORS = [0x2d6a4f, 0x1b4332, 0x40916c];
+  const circles = markRaw(new Graphics());
   for (let i = 0; i < n; i++) {
     const x = 20 + Math.random() * (WORLD_W - 40);
     const y = 20 + Math.random() * (WORLD_H - 40);
     const r = 8 + Math.random() * 24;
-    const hue = Math.floor(Math.random() * 3);
-    const colors = [0x2d6a4f, 0x1b4332, 0x40916c];
-    const g = markRaw(new Graphics());
-    g.setFillStyle({ color: colors[hue], alpha: 0.7 });
-    g.setStrokeStyle({ width: 1, color: 0x52b788 });
-    g.circle(x, y, r).fill().stroke();
-    contentLayer.addChild(g);
+    circles.circle(x, y, r).fill({ color: COLORS[Math.floor(Math.random() * 3)], alpha: 0.7 });
   }
+  contentLayer.addChild(circles);
 
   // Labels at grid corners for orientation
   for (const [lx, ly, label] of [[10, 10, 'origin'], [WORLD_W - 60, 10, 'NE'], [10, WORLD_H - 20, 'SW'], [WORLD_W - 60, WORLD_H - 20, 'SE']]) {
