@@ -105,6 +105,9 @@ function circleEdgePoint(center: Pt, radius: number, from: Pt): Pt {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// Plant properties (world space, center of canvas)
+const PLANT_RADIUS = 60;
+
 const canvasEl = ref<HTMLCanvasElement>();
 const statusMsg = ref('Drag the label. The leader line redraws live.');
 const leaderVisible = ref(true);
@@ -112,9 +115,6 @@ const labelOffsetX = ref(PLANT_RADIUS + 50);
 const labelOffsetY = ref(0);
 
 let app = markRaw({} as Application);
-
-// Plant properties (world space, center of canvas)
-const PLANT_RADIUS = 60;
 const PLANT_COLOR = 0x4a7c59;
 
 // Label size — measured from BitmapText after creation

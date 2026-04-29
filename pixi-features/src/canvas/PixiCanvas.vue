@@ -82,6 +82,7 @@ onMounted(async () => {
   app.stage.addChild(viewport);
   app.stage.eventMode = 'static';
   viewport.on('zoomed', () => {
+    if (!viewport) return;
     renderer?.updateLOD(viewport.scale.x);
     emit('zoom', viewport.scale.x);
   });

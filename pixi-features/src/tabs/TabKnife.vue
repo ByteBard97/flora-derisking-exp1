@@ -106,7 +106,7 @@ function performCut(from: { x:number;y:number }, to: { x:number;y:number }) {
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     const b = new Bezier(s.p0.x, s.p0.y, s.cp1.x, s.cp1.y, s.cp2.x, s.cp2.y, s.p1.x, s.p1.y);
-    const xs = b.intersects(line) as number[];
+    const xs = b.intersects(line) as (string | number)[];
     for (const raw of xs) {
       const t = typeof raw === 'string' ? parseFloat(raw.split('/')[0]) : raw;
       if (t > 0.001 && t < 0.999) hits.push({ segIndex: i, t });
