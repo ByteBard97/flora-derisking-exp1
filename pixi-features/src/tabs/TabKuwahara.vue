@@ -1,30 +1,29 @@
 <script setup lang="ts">
 /**
- * Anisotropic Kuwahara filter spike.
- * 3-pass painterly effect: Sobel tensor → Gaussian blur → Kuwahara.
- * Source: flora-studio/docs/research/followup-B-multipass-filter.md
+ * Kuwahara filter spike — painterly oil-paint effect.
+ *
+ * Uses single-pass isotropic Kuwahara (KuwaharaFilter.ts).
+ * The 3-pass anisotropic version (AnisotropicKuwaharaFilter) is disabled due to
+ * a Pixi v8 FilterSystem cross-context bug when calling filterManager.applyFilter()
+ * recursively from inside an overridden apply() — documented in ARCHITECTURE.md.
  */
 import { ref, watch, onMounted, onUnmounted, markRaw } from 'vue'
 import { Application, Assets, Sprite } from 'pixi.js'
-import { AnisotropicKuwaharaFilter } from '../lib/filters/AnisotropicKuwaharaFilter'
+import { KuwaharaFilter } from '../lib/filters/KuwaharaFilter'
 import { useFps } from '../shared/useFps'
 
 const { fps, frameMs } = useFps()
 const canvasEl = ref<HTMLCanvasElement>()
 
-const kernelSize   = ref(12)
-const hardness     = ref(8)
-const sharpness    = ref(8)
-const enabled      = ref(true)
+const radius  = ref(6)
+const enabled = ref(true)
 
 let app    = markRaw({} as Application)
 let sprite: Sprite | null = null
-let filter: AnisotropicKuwaharaFilter | null = null
+let filter: KuwaharaFilter | null = null
 
-watch(kernelSize,  v => { if (filter) filter.kernelSize = v })
-watch(hardness,    v => { if (filter) filter.hardness   = v })
-watch(sharpness,   v => { if (filter) filter.sharpness  = v })
-watch(enabled,     v => { if (sprite) sprite.filters = v && filter ? [filter] : [] })
+watch(radius,  v => { if (filter) filter.radius = v })
+watch(enabled, v => { if (sprite) sprite.filters = v && filter ? [filter] : [] })
 
 onMounted(async () => {
   const canvas = canvasEl.value!
@@ -42,7 +41,6 @@ onMounted(async () => {
   const texture = await Assets.load('/demo-landscape.svg')
   sprite = markRaw(new Sprite(texture))
 
-  // Scale SVG to fill the canvas, maintaining aspect ratio
   const scale = Math.min(
     canvas.clientWidth  / sprite.texture.width,
     canvas.clientHeight / sprite.texture.height,
@@ -51,11 +49,7 @@ onMounted(async () => {
   sprite.anchor.set(0.5)
   sprite.position.set(canvas.clientWidth / 2, canvas.clientHeight / 2)
 
-  filter = markRaw(new AnisotropicKuwaharaFilter({
-    kernelSize: kernelSize.value,
-    hardness:   hardness.value,
-    sharpness:  sharpness.value,
-  }))
+  filter = markRaw(new KuwaharaFilter({ radius: radius.value }))
   sprite.filters = [filter]
 
   app.stage.addChild(sprite)
@@ -64,12 +58,7 @@ onMounted(async () => {
     const { registerPixiBridge } = await import('pixi-bridge')
     registerPixiBridge(app, {
       tabName: 'kuwahara',
-      getSnapshot: () => ({
-        kernelSize: kernelSize.value,
-        hardness: hardness.value,
-        sharpness: sharpness.value,
-        enabled: enabled.value,
-      }),
+      getSnapshot: () => ({ radius: radius.value, enabled: enabled.value }),
     })
   }
 })
@@ -95,24 +84,16 @@ onUnmounted(() => {
         <input type="checkbox" v-model="enabled" />
         Kuwahara on
       </label>
-      <label>Kernel
-        <input type="range" v-model.number="kernelSize" min="4" max="20" step="2" style="width:80px" />
-        {{ kernelSize }}px
-      </label>
-      <label>Hardness
-        <input type="range" v-model.number="hardness" min="1" max="20" step="0.5" style="width:80px" />
-        {{ hardness.toFixed(1) }}
-      </label>
-      <label>Sharpness
-        <input type="range" v-model.number="sharpness" min="1" max="20" step="0.5" style="width:80px" />
-        {{ sharpness.toFixed(1) }}
+      <label>Radius
+        <input type="range" v-model.number="radius" min="1" max="12" step="1" style="width:80px" />
+        {{ radius }}px
       </label>
       <div style="font-size:10px;color:#888;margin-top:4px;max-width:200px">
-        3-pass: Sobel tensor → Gaussian blur → Anisotropic Kuwahara.<br>
-        Larger kernel = more painterly.
+        Isotropic Kuwahara — picks the lowest-variance quadrant window per pixel.
+        Higher radius = larger painterly splotches.
       </div>
     </div>
-    <div class="hint">Anisotropic Kuwahara — painterly brushstroke effect following edge orientation</div>
+    <div class="hint">Kuwahara filter — single-pass isotropic, oil-paint effect</div>
   </div>
 </template>
 
