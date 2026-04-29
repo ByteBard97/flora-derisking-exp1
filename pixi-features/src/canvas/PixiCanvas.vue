@@ -205,8 +205,7 @@ function onStagePointerMove(e: any): void {
   const lh = Math.abs(lassoCurrentWorld.y - lassoStartWorld.y);
   lassoGfx.clear();
   if (lw > DRAG_THRESHOLD_PX || lh > DRAG_THRESHOLD_PX) {
-    lassoGfx.rect(lx, ly, lw, lh).fill({ color: 0x0070e0, alpha: 0.1 });
-    lassoGfx.rect(lx, ly, lw, lh).stroke({ color: 0x0070e0, width: 1 / viewport.scale.x });
+    lassoGfx.rect(lx, ly, lw, lh).fill({ color: 0x0070e0, alpha: 0.1 }).stroke({ color: 0x0070e0, width: 1 / viewport.scale.x });
   }
 }
 
