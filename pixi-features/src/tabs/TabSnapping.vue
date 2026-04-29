@@ -70,11 +70,12 @@ function drawGrid() {
   for (let x = -2000; x <= 2000; x += GRID) gridGfx.moveTo(x, -2000).lineTo(x, 2000);
   for (let y = -2000; y <= 2000; y += GRID) gridGfx.moveTo(-2000, y).lineTo(2000, y);
   gridGfx.stroke();
-  // Dot at each grid intersection (subtle)
+  // Dot at each major grid intersection — belongs in gridGfx, not staticGfx
   for (let x = -800; x <= 800; x += GRID * 5) {
     for (let y = -600; y <= 600; y += GRID * 5) {
-      staticGfx.setFillStyle({ color: 0x333333 });
-      staticGfx.circle(x, y, 1.5).fill();
+      gridGfx.beginPath();
+      gridGfx.setFillStyle({ color: 0x333333 });
+      gridGfx.circle(x, y, 1.5).fill();
     }
   }
 }
@@ -175,6 +176,7 @@ function onWheel(e: WheelEvent) {
   camY = sy - wy * zoom;
   app.stage.position.set(camX, camY);
   app.stage.scale.set(zoom);
+  drawShape(); // refresh snap indicator size (sz = 14/zoom)
 }
 
 onMounted(async () => {
