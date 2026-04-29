@@ -107,7 +107,7 @@ function select(id: string) {
 
     <!-- Todo panel — slides in from the right -->
     <aside class="todo-aside" :class="{ open: todoOpen }">
-      <TodoPanel />
+      <TodoPanel @navigate="select" />
     </aside>
   </div>
 </template>
@@ -240,8 +240,8 @@ function select(id: string) {
   flex-shrink: 0;
 }
 .todo-aside.open {
-  width: 260px;
-  min-width: 260px;
+  width: 380px;
+  min-width: 380px;
   opacity: 1;
 }
 

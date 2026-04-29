@@ -6,16 +6,170 @@ interface TodoItem {
   title: string;
   body: string;
   done: boolean;
+  tabId?: string;
 }
 
-const STORAGE_KEY = 'pixi-features-todo-v2';
+const emit = defineEmits<{ navigate: [tabId: string] }>();
+
+const STORAGE_KEY = 'pixi-features-todo-v4';
 
 const DEFAULTS: Omit<TodoItem, 'id'>[] = [
+  // ── Per-tab visual verification ───────────────────────────────────────
+  // Rendering
   {
-    title: 'Verify 5 unconfirmed tabs',
-    body: 'Browser crashed before we could screenshot these:\n• Marching Ants\n• Viewport\n• Transform Gizmo\n• Spatial Index\n• @pixi/ui\n\nOpen each one at localhost:5202 and make sure they load and interact correctly.',
+    title: 'Tab: Plant Renderer',
+    tabId: 'renderer',
+    body: 'Group: Rendering\n\nVerify:\n• 300+ plants render without missing sprites\n• Pan + wheel-zoom feels smooth (no stutter)\n• Click selects a plant; drag moves it\n• No flicker at zoom extremes (0.1× and 10×)',
     done: false,
   },
+  {
+    title: 'Tab: Leader Line',
+    tabId: 'leader',
+    body: 'Group: Rendering\n\nVerify:\n• Leader line stays anchored to its plant under pan + zoom\n• Label remains readable across zoom range\n• No tearing or kinks where line meets label',
+    done: false,
+  },
+  {
+    title: 'Tab: MSDF Text',
+    tabId: 'msdf',
+    body: 'Group: Rendering\n\nVerify:\n• Text stays crisp at 0.1× zoom (no blur)\n• Text stays crisp at 10× zoom (no pixel stair-stepping)\n• Compare against BitmapText tab for sharpness',
+    done: false,
+  },
+  {
+    title: 'Tab: BitmapText',
+    tabId: 'bitmap',
+    body: 'Group: Rendering\n\nVerify:\n• All glyphs render (no tofu / missing chars)\n• 100+ labels stay performant\n• Compare crispness vs MSDF Text',
+    done: false,
+  },
+  {
+    title: 'Tab: NPR Renderer',
+    tabId: 'npr',
+    body: 'Group: Rendering\n\nVerify:\n• Non-photoreal style is visibly applied\n• Any toggles produce distinctly different looks\n• No z-fighting or seams between layers',
+    done: false,
+  },
+  {
+    title: 'Tab: Tree Symbol',
+    tabId: 'tree',
+    body: 'Group: Rendering\n\nVerify:\n• Symbol renders with crown + shadow\n• Scales correctly under zoom (no clipping)\n• Anchors stay aligned to position',
+    done: false,
+  },
+  {
+    title: 'Tab: Wind Sway',
+    tabId: 'wind',
+    body: 'Group: Rendering\n\nVerify:\n• Animation loops smoothly\n• No jitter or popping at loop boundary\n• Pause/play (if exposed) works',
+    done: false,
+  },
+  {
+    title: 'Tab: Kuwahara Filter',
+    tabId: 'kuwahara',
+    body: 'Group: Rendering\n\nVerify:\n• Painterly effect visibly applied to site plan PNG\n• No hard artifacts at edges of the canvas\n• Effect intensity slider (if any) reacts correctly',
+    done: false,
+  },
+
+  // Drawing Tools
+  {
+    title: 'Tab: Pen Tool',
+    tabId: 'pen',
+    body: 'Group: Drawing Tools\n\nVerify:\n• Click adds corner anchor\n• Alt-drag (or drag) creates smooth bezier handles\n• Clicking first anchor closes the path\n• Resulting path looks clean (no stray segments)',
+    done: false,
+  },
+  {
+    title: 'Tab: Freehand',
+    tabId: 'freehand',
+    body: 'Group: Drawing Tools\n\nVerify:\n• Sketch a curve — green fitted bezier overlay appears on pointer-up\n• Quality bar: an S-curve should look like Illustrator pencil output\n• If corners cut: try fitError=2; if jagged: try fitError=8 (default 4)',
+    done: false,
+  },
+  {
+    title: 'Tab: Knife Tool',
+    tabId: 'knife',
+    body: 'Group: Drawing Tools\n\nVerify:\n• Drawing a slice across a bed splits it into two closed shapes\n• Both halves remain selectable\n• No leftover open paths',
+    done: false,
+  },
+  {
+    title: 'Tab: Boolean Ops',
+    tabId: 'bool',
+    body: 'Group: Drawing Tools\n\nVerify:\n• Union, subtract, and intersect on two overlapping shapes each produce the right result\n• Result is a single closed path (not two coincident edges)\n• No self-intersections in the output',
+    done: false,
+  },
+  {
+    title: 'Tab: Dashed Lines',
+    tabId: 'dash',
+    body: 'Group: Drawing Tools\n\nVerify:\n• Dashes render evenly along the path\n• Dash length stays visually consistent across zoom levels\n• No gaps at corners',
+    done: false,
+  },
+
+  // Interaction
+  {
+    title: 'Tab: Measure',
+    tabId: 'measure',
+    body: 'Group: Interaction\n\nVerify:\n• Distance and area readouts appear\n• Values update live while dragging endpoints\n• Units are correct (inches / feet, as configured)',
+    done: false,
+  },
+  {
+    title: 'Tab: Selection',
+    tabId: 'sel',
+    body: 'Group: Interaction\n\nVerify:\n• Click selects a single object\n• Shift-click multi-selects\n• Drag-marquee selects everything inside\n• Escape clears selection',
+    done: false,
+  },
+  {
+    title: 'Tab: Snapping',
+    tabId: 'snap',
+    body: 'Group: Interaction\n\nVerify:\n• Endpoints snap to other geometry within threshold\n• Visual indicator (dot/crosshair) appears at snap point\n• Snapping releases cleanly when you move away',
+    done: false,
+  },
+  {
+    title: 'Tab: Transform Gizmo',
+    tabId: 'transform',
+    body: 'Group: Interaction\n\nVerify:\n• Gizmo handles appear on selection\n• Translate, rotate, and scale all behave correctly\n• No drift after multiple operations\n• Gizmo follows selection through pan/zoom',
+    done: false,
+  },
+  {
+    title: 'Tab: Spatial Index',
+    tabId: 'spatial',
+    body: 'Group: Interaction\n\nVerify:\n• Hit-testing stays fast with many objects on screen\n• Selection picks the topmost item where things overlap\n• No false hits in empty space',
+    done: false,
+  },
+  {
+    title: 'Tab: Ants · Phase Math',
+    tabId: 'ants',
+    body: 'Group: Interaction\n\nVerify:\n• Marching ants animate around selection outline\n• Speed stays consistent across zoom levels\n• No flicker or direction reversals',
+    done: false,
+  },
+  {
+    title: 'Tab: Ants · TilingSprite',
+    tabId: 'ants-tiling',
+    body: 'Group: Interaction\n\nVerify:\n• Marching ants animate via TilingSprite path\n• Compare smoothness/quality against Phase Math implementation\n• Note which approach you prefer',
+    done: false,
+  },
+  {
+    title: 'Tab: Ants · Davidfig',
+    tabId: 'ants-davidfig',
+    body: 'Group: Interaction\n\nVerify:\n• Third marching-ants implementation animates correctly\n• Compare against the other two — pick the cleanest for production\n• Record decision in ARCHITECTURE.md',
+    done: false,
+  },
+
+  // Text & UI
+  {
+    title: 'Tab: Text Annotation',
+    tabId: 'textann',
+    body: 'Group: Text & UI\n\nVerify:\n• Click on canvas adds a text annotation\n• Edit-in-place works (typing updates the rendered text)\n• Position persists across pan/zoom',
+    done: false,
+  },
+  {
+    title: 'Tab: @pixi/ui',
+    tabId: 'pixiui',
+    body: 'Group: Text & UI\n\nVerify:\n• Widgets (buttons, sliders, etc.) render\n• Buttons respond to click\n• Sliders update their value as expected',
+    done: false,
+  },
+
+  // Viewport
+  {
+    title: 'Tab: Viewport',
+    tabId: 'viewport',
+    body: 'Group: Viewport\n\nVerify:\n• Space+drag pans the canvas\n• Mouse wheel zooms toward cursor\n• Fit-to-view (if exposed) frames all content\n• No coordinate drift after extended panning',
+    done: false,
+  },
+
+  // ── Strategic / cross-tab work (carried over from v2) ─────────────────
   {
     title: 'Rulers / measurement tool spike',
     body: 'Need a TabRulers spike proving tick marks stay legible across 3 orders of zoom magnitude (0.05× to 10×).\n\nResearch prompt already written — check annie-reviews/notebooklm-video-prompt.md for the measurement tool section.\n\nRapiD reference: modules/core/MapSystem.js has zoom-stable tick logic.',
@@ -97,6 +251,8 @@ const selected = computed(() => items.value.find(i => i.id === selectedId.value)
 
 function select(id: number) {
   selectedId.value = selectedId.value === id ? null : id;
+  const item = items.value.find(i => i.id === id);
+  if (item?.tabId) emit('navigate', item.tabId);
 }
 
 function toggle(item: TodoItem) {
@@ -179,7 +335,7 @@ function updateSelected(field: 'title' | 'body', val: string) {
         :value="selected.body"
         @input="updateSelected('body', ($event.target as HTMLTextAreaElement).value)"
         placeholder="Add notes…"
-        rows="5"
+        rows="14"
       />
     </div>
 
@@ -338,6 +494,9 @@ function updateSelected(field: 'title' | 'body', val: string) {
   border-top: 1px solid #222;
   padding: 10px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
 }
 
 .todo-body-label {
@@ -351,16 +510,18 @@ function updateSelected(field: 'title' | 'body', val: string) {
 
 .todo-body-text {
   width: 100%;
+  flex: 1;
+  min-height: 280px;
   background: #0e0e0e;
   border: 1px solid #2a2a2a;
   border-radius: 3px;
   color: #ccc;
   font-family: monospace;
-  font-size: 11px;
-  padding: 6px 8px;
+  font-size: 12px;
+  padding: 10px 12px;
   resize: vertical;
   box-sizing: border-box;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 .todo-body-text:focus { outline: none; border-color: #0070e0; }
 
