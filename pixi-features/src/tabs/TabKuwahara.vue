@@ -63,12 +63,12 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
+onUnmounted(async () => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
   filter?.destroy()
   filter = null
-  Assets.unload('/demo-landscape.svg')
+  await Assets.unload('/demo-landscape.svg')
   app?.destroy(true, { children: true, texture: true, context: true })
 })
 </script>

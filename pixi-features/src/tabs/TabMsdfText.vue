@@ -106,10 +106,10 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
-  Assets.unload(FONT_PATH)
+  await Assets.unload(FONT_PATH)
   app?.destroy(true);
   app = null;
 });

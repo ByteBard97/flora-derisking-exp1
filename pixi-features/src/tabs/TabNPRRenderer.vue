@@ -269,9 +269,9 @@ onMounted(async () => {
   viewport.moveCenter(440, 350)
 })
 
-onUnmounted(() => {
+onUnmounted(async () => {
   app.ticker?.remove(updateCrosshatchMatrix)
-  Assets.unload('/demo-landscape.svg')
+  await Assets.unload('/demo-landscape.svg')
   app?.destroy(true, { children: true, texture: true, context: true })
 })
 </script>

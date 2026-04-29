@@ -150,11 +150,11 @@ onMounted(async () => {
   );
 });
 
-onBeforeUnmount(() => {
+onBeforeUnmount(async () => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
   window.removeEventListener('keydown', onKeyDown);
-  Assets.unload('/site-plan.svg')
+  await Assets.unload('/site-plan.svg')
   app?.destroy(true);
   app = null;
   viewport = null;
