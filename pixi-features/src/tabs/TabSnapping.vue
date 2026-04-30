@@ -150,8 +150,10 @@ function onBgPD(e: any) {
 function onStagePM(e: any) {
   if (draggingVertIdx >= 0) {
     const wp = screenToWorld(e.global.x, e.global.y);
-    VERTS[draggingVertIdx].x = wp.x;
-    VERTS[draggingVertIdx].y = wp.y;
+    applySnap(wp.x, wp.y);
+    const pos = snapped ?? wp;
+    VERTS[draggingVertIdx].x = pos.x;
+    VERTS[draggingVertIdx].y = pos.y;
     drawStatic();
     drawShape();
     return;
@@ -170,14 +172,14 @@ function onStagePM(e: any) {
 }
 
 function onStagePU() {
-  draggingVertIdx = -1;
   if (isDragging && snapped) {
     shapePos = { ...snapped };
-    snapped = null;
-    drawShape();
   }
+  snapped = null;
+  draggingVertIdx = -1;
   isDragging = false;
   isPanning = false;
+  drawShape();
 }
 
 function onWheel(e: WheelEvent) {
