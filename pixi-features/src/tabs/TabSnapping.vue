@@ -150,10 +150,9 @@ function onBgPD(e: any) {
 function onStagePM(e: any) {
   if (draggingVertIdx >= 0) {
     const wp = screenToWorld(e.global.x, e.global.y);
-    // Only grid-snap vertices — vertex/edge snap would pull to off-grid positions
-    const thresh = 20 / zoom;
-    const sg = snapToGrid(wp.x, wp.y, GRID);
-    const pos = (snapModes.value.grid && Math.hypot(wp.x - sg.x, wp.y - sg.y) < thresh) ? sg : wp;
+    // Only grid-snap vertices — vertex/edge snap would pull to off-grid positions.
+    // Always snap to nearest grid when enabled (no threshold) so zoom level doesn't change behavior.
+    const pos = snapModes.value.grid ? snapToGrid(wp.x, wp.y, GRID) : wp;
     VERTS[draggingVertIdx].x = pos.x;
     VERTS[draggingVertIdx].y = pos.y;
     drawStatic();
