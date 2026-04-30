@@ -10,13 +10,13 @@
  *
  * Font generated with msdf-bmfont-xml from Times New Roman at 48px / range 6.
  * Atlas: public/fonts/times-new-roman.png
- * Descriptor: public/fonts/Times New Roman.fnt
+ * Descriptor: public/fonts/times-new-roman.fnt
  */
 import { onMounted, onUnmounted, ref } from 'vue';
 import { Application, Assets, BitmapText, Container } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 
-const FONT_PATH = '/fonts/Times New Roman.fnt';
+const FONT_PATH = '/fonts/times-new-roman.fnt';
 const LABEL_COUNT = 300;
 const WORLD_W = 2400;
 const WORLD_H = 3600;

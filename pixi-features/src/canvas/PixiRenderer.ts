@@ -320,7 +320,10 @@ export class PixiRenderer {
   }
 
   private applyLOD(container: Container, lod: number): void {
-    container.visible = lod > 0;
+    // Always show plants (colored circle) at any zoom — landscape designers
+    // want a density view at extreme zoom-out, not blank canvas. Mipmaps in
+    // flora-studio will further improve sub-pixel sprite quality.
+    container.visible = true;
     const sprite = container.getChildByLabel('sprite') as Sprite | null;
     const label  = container.getChildByLabel('label')  as BitmapText | null;
     const leader = container.getChildByLabel('leader') as Graphics | null;

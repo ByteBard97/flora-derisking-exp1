@@ -11,10 +11,13 @@ import { snapToGrid, snapToVertex, snapToEdge, type Pt } from '../lib/snapUtils'
 const { fps, frameMs } = useFps();
 const canvasEl = ref<HTMLCanvasElement>();
 
-const GRID = 40;
 const snapModes = ref({ grid: true, vertex: true, edge: true });
 const snapStrength = ref<'off' | 'permissive' | 'strict'>('permissive');
 const snapInfo = ref('');
+
+const pixelsPerFoot = ref(50)      // world px per foot
+const gridFeet      = ref(1)       // grid spacing in feet
+const thresholdFeet = ref(0.3)     // snap threshold in feet (permissive mode only)
 
 // Static scene: vertices and edges
 let VERTS: Pt[] = [
@@ -50,9 +53,9 @@ function applySnap(wx: number, wy: number) {
   snapInfo.value = '';
   if (snapStrength.value === 'off') return;
 
-  // Permissive: snap only within 20 screen-px of a target.
+  // Permissive: snap only within threshold (world units) of a target.
   // Strict: snap to nearest target regardless of distance (threshold = Infinity).
-  const thresh = snapStrength.value === 'strict' ? Infinity : 20 / zoom;
+  const thresh = snapStrength.value === 'strict' ? Infinity : (thresholdFeet.value * pixelsPerFoot.value);
 
   if (snapModes.value.vertex) {
     const sv = snapToVertex(wx, wy, VERTS, thresh);
@@ -63,25 +66,57 @@ function applySnap(wx: number, wy: number) {
     if (se) { snapped = se; snapInfo.value = 'edge'; return; }
   }
   if (snapModes.value.grid) {
-    const sg = snapToGrid(wx, wy, GRID);
+    const sg = snapToGrid(wx, wy, gridPx());
     if (Math.hypot(wx - sg.x, wy - sg.y) < thresh) {
-      snapped = sg; snapInfo.value = `grid (${sg.x}, ${sg.y})`;
+      snapped = sg; snapInfo.value = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`;
     }
   }
 }
 
+function gridPx(): number {
+  return pixelsPerFoot.value * gridFeet.value;
+}
+
 function drawGrid() {
   gridGfx.clear();
-  (gridGfx as any).setStrokeStyle({ width: 1, color: 0x2a2a2a, pixelLine: true });
-  for (let x = -2000; x <= 2000; x += GRID) gridGfx.moveTo(x, -2000).lineTo(x, 2000);
-  for (let y = -2000; y <= 2000; y += GRID) gridGfx.moveTo(-2000, y).lineTo(2000, y);
+  const gp = gridPx();
+
+  // Screen bounds in world coords (draw only visible area + 1 cell margin)
+  const wLeft   = -camX / zoom - gp;
+  const wRight  = (canvasEl.value!.clientWidth  - camX) / zoom + gp;
+  const wTop    = -camY / zoom - gp;
+  const wBottom = (canvasEl.value!.clientHeight - camY) / zoom + gp;
+
+  // Minor lines (1 ft grid) — only when screen spacing > 8px to avoid moiré
+  const screenSpacing = gp * zoom;
+  if (screenSpacing >= 8) {
+    // NO pixelLine — fractional world positions need AA, not integer snapping
+    gridGfx.setStrokeStyle({ width: 1, color: 0x2a2a2a, alpha: Math.min(1, (screenSpacing - 8) / 16) });
+    const startX = Math.floor(wLeft / gp) * gp;
+    const startY = Math.floor(wTop  / gp) * gp;
+    for (let x = startX; x <= wRight; x += gp) gridGfx.moveTo(x, wTop).lineTo(x, wBottom);
+    for (let y = startY; y <= wBottom; y += gp) gridGfx.moveTo(wLeft, y).lineTo(wRight, y);
+    gridGfx.stroke();
+  }
+
+  // Major lines (5 ft) — always drawn, slightly brighter
+  const majorGp = gp * 5;
+  const screenMajorSpacing = majorGp * zoom;
+  gridGfx.setStrokeStyle({ width: 1, color: 0x3a3a3a, alpha: Math.min(1, screenMajorSpacing / 40) });
+  const startMX = Math.floor(wLeft   / majorGp) * majorGp;
+  const startMY = Math.floor(wTop    / majorGp) * majorGp;
+  for (let x = startMX; x <= wRight;  x += majorGp) gridGfx.moveTo(x, wTop).lineTo(x, wBottom);
+  for (let y = startMY; y <= wBottom; y += majorGp) gridGfx.moveTo(wLeft, y).lineTo(wRight, y);
   gridGfx.stroke();
-  // Dot at each major grid intersection — belongs in gridGfx, not staticGfx
-  for (let x = -800; x <= 800; x += GRID * 5) {
-    for (let y = -600; y <= 600; y += GRID * 5) {
-      gridGfx.beginPath();
-      gridGfx.setFillStyle({ color: 0x333333 });
-      gridGfx.circle(x, y, 1.5).fill();
+
+  // Dots at major intersections (when zoomed in enough)
+  if (screenMajorSpacing >= 20) {
+    for (let x = startMX; x <= wRight; x += majorGp) {
+      for (let y = startMY; y <= wBottom; y += majorGp) {
+        gridGfx.beginPath();
+        gridGfx.setFillStyle({ color: 0x444444 });
+        gridGfx.circle(x, y, 1.5).fill();
+      }
     }
   }
 }
@@ -160,15 +195,15 @@ function onStagePM(e: any) {
     snapped = null;
     snapInfo.value = '';
     if (snapStrength.value !== 'off') {
-      const thresh = snapStrength.value === 'strict' ? Infinity : 20 / zoom;
+      const thresh = snapStrength.value === 'strict' ? Infinity : (thresholdFeet.value * pixelsPerFoot.value);
       if (snapModes.value.edge) {
         const se = snapToEdge(wp.x, wp.y, EDGES, thresh);
         if (se) { snapped = se; snapInfo.value = 'edge'; }
       }
       if (!snapped && snapModes.value.grid) {
-        const sg = snapToGrid(wp.x, wp.y, GRID);
+        const sg = snapToGrid(wp.x, wp.y, gridPx());
         if (Math.hypot(wp.x - sg.x, wp.y - sg.y) < thresh) {
-          snapped = sg; snapInfo.value = `grid (${sg.x}, ${sg.y})`;
+          snapped = sg; snapInfo.value = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`;
         }
       }
     }
@@ -217,6 +252,7 @@ function onWheel(e: WheelEvent) {
   camY = sy - wy * zoom;
   app.stage.position.set(camX, camY);
   app.stage.scale.set(zoom);
+  drawGrid();
   drawShape(); // refresh snap indicator size (sz = 14/zoom)
 }
 
@@ -250,6 +286,9 @@ onMounted(async () => {
 
   watch(snapModes, () => { drawShape() }, { deep: true });
   watch(snapStrength, () => { drawShape() });
+  watch(pixelsPerFoot, () => { drawGrid(); drawShape(); });
+  watch(gridFeet,      () => { drawGrid(); drawShape(); });
+  watch(thresholdFeet, () => { drawShape(); });
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
@@ -285,6 +324,7 @@ onUnmounted(() => {
       <div class="fps">{{ fps }} <span>fps</span></div>
       <div>{{ frameMs }} ms</div>
       <div class="sep" />
+      <div class="scale-info">{{ pixelsPerFoot }}px = 1ft · grid {{ gridFeet }}ft</div>
       <div v-if="snapInfo" class="snap-info">⊕ {{ snapInfo }}</div>
     </div>
     <div class="controls">
@@ -301,6 +341,13 @@ onUnmounted(() => {
         <label><input type="radio" v-model="snapStrength" value="permissive" /> Permissive</label>
         <label><input type="radio" v-model="snapStrength" value="strict" /> Strict</label>
       </div>
+      <div class="ctrl-sep" />
+      <div class="ctrl-group">
+        <span class="ctrl-label">Scale</span>
+        <label>px/ft <input type="number" v-model.number="pixelsPerFoot" min="5" max="200" step="0.5" class="num-input" /></label>
+        <label>grid (ft) <input type="number" v-model.number="gridFeet" min="0.25" max="20" step="0.25" class="num-input" /></label>
+        <label>thresh (ft) <input type="number" v-model.number="thresholdFeet" min="0.05" max="5" step="0.05" class="num-input" /></label>
+      </div>
     </div>
     <div class="hint">Drag the orange square · <kbd>alt+drag</kbd> pan · <kbd>scroll</kbd> zoom</div>
   </div>
@@ -314,6 +361,8 @@ canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .fps span { font-size: 12px; color: #0a0; }
 .sep { height: 6px; }
 .snap-info { color: #ffdd00; font-weight: bold; }
+.num-input { width: 52px; background: #222; color: #ccc; border: 1px solid #444; border-radius: 3px; padding: 2px 4px; font-family: monospace; font-size: 11px; }
+.scale-info { color: #6af; font-size: 10px; }
 .controls {
   position: absolute; top: 10px; right: 10px;
   display: flex; gap: 10px; align-items: center;

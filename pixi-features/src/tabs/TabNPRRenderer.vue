@@ -4,7 +4,7 @@ import { Application, Assets, Sprite, Container, Filter, Matrix, Texture } from 
 import { Viewport } from 'pixi-viewport'
 import { hashId, SPECIES_COLORS } from '../lib/treeSymbol'
 import { useFps } from '../shared/useFps'
-import { RisographFilter, RISOGRAPH_PARAMS } from '../lib/filters/RisographFilter'
+import { RisographFilter, RISOGRAPH_PARAMS, RISO_INK_PALETTES } from '../lib/filters/RisographFilter'
 import type { ParamDef } from '../lib/filters/RisographFilter'
 
 const WATERCOLOR_PARAMS: ParamDef[] = [
@@ -29,12 +29,12 @@ let viewport = markRaw({} as Viewport)
 let plantLayer = markRaw({} as Container)
 let plantSprites: Sprite[] = []
 let activeFilters: Filter[] = []
+let wobbleFilters: WobbleFilter[] = []
 const paramValues = ref<Record<string, number>>({})
 
 const activeStyle = ref<StyleId>('technical')
 
 let bg = markRaw({} as Sprite)
-let wobbleFilter = markRaw({} as WobbleFilter)
 const wobbleEnabled = ref(false)
 
 // ---------------------------------------------------------------------------
@@ -60,27 +60,41 @@ const SPRITE_RESOLUTION = 512
 async function svgToTexture(url: string): Promise<Texture> {
   const img = new Image()
   await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = url })
+  // Preserve the SVG's native aspect ratio: fit it inside SPRITE_RESOLUTION² and
+  // center it on transparent background. Otherwise non-square SVGs get squashed.
   const canvas = document.createElement('canvas')
   canvas.width = SPRITE_RESOLUTION
   canvas.height = SPRITE_RESOLUTION
-  canvas.getContext('2d')!.drawImage(img, 0, 0, SPRITE_RESOLUTION, SPRITE_RESOLUTION)
+  const ctx = canvas.getContext('2d')!
+  const aspect = img.naturalWidth / img.naturalHeight
+  const drawW = aspect >= 1 ? SPRITE_RESOLUTION : SPRITE_RESOLUTION * aspect
+  const drawH = aspect >= 1 ? SPRITE_RESOLUTION / aspect : SPRITE_RESOLUTION
+  const dx = (SPRITE_RESOLUTION - drawW) / 2
+  const dy = (SPRITE_RESOLUTION - drawH) / 2
+  ctx.drawImage(img, dx, dy, drawW, drawH)
   return Texture.from(canvas)
 }
 
-async function parsePlantsFromSvg(): Promise<ParsedPlant[]> {
-  const resp = await fetch('/demo-landscape.svg')
-  const text = await resp.text()
-  const re = /<circle[^>]+cx="([^"]+)"[^>]+cy="([^"]+)"[^>]+r="([^"]+)"/g
+// 4×4 grid of plants on a dark canvas — clean shader showcase.
+// Rows alternate species so each filter can be judged across plant types.
+const GRID = 4
+const CELL = 200
+const PLANT_R = 80
+const WORLD_SIZE = GRID * CELL
+const SPECIES_ORDER: ParsedPlant['species'][] = ['oak', 'magnolia', 'azalea', 'fern']
+
+function buildGridPlants(): ParsedPlant[] {
   const plants: ParsedPlant[] = []
-  let m: RegExpExecArray | null
-  let idx = 0
-  while ((m = re.exec(text)) !== null) {
-    const r = parseFloat(m[3])
-    if (r < 8) continue
-    const cx = parseFloat(m[1]), cy = parseFloat(m[2])
-    const species: ParsedPlant['species'] =
-      r < 12 ? 'fern' : r < 16 ? 'azalea' : r < 22 ? 'magnolia' : 'oak'
-    plants.push({ id: `p${idx++}`, species, cx, cy, r })
+  for (let row = 0; row < GRID; row++) {
+    for (let col = 0; col < GRID; col++) {
+      plants.push({
+        id: `p${row}_${col}`,
+        species: SPECIES_ORDER[(row + col) % SPECIES_ORDER.length],
+        cx: col * CELL + CELL / 2,
+        cy: row * CELL + CELL / 2,
+        r: PLANT_R,
+      })
+    }
   }
   return plants
 }
@@ -107,7 +121,7 @@ function applyParamsToFilter(f: RisographFilter) {
 
 const _mat = new Matrix()
 
-function updateCrosshatchMatrix() {
+function updateWorldMatrix() {
   // viewport.localTransform maps world→screen; invert for screen→world
   viewport.localTransform.copyTo(_mat)
   _mat.invert()
@@ -117,30 +131,39 @@ function updateCrosshatchMatrix() {
       ;(f.resources.hatchUniforms as any).uniforms.uWorldMatrix = m
     }
   }
+  for (const f of wobbleFilters) {
+    ;(f.resources.wobbleUniforms as any).uniforms.uWorldMatrix = m
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Style application
 // ---------------------------------------------------------------------------
 
+function refreshTickerSubscription() {
+  const need = activeStyle.value === 'sketch' || wobbleEnabled.value
+  if (need) app.ticker.add(updateWorldMatrix)
+  else app.ticker.remove(updateWorldMatrix)
+}
+
 function applyStyle(style: StyleId) {
   for (const sprite of plantSprites) {
     sprite.filters = []
   }
   activeFilters = []
-  // Remove crosshatch ticker if present — add it back for sketch
-  app.ticker?.remove(updateCrosshatchMatrix)
 
   if (style === 'risograph') {
     for (const p of RISOGRAPH_PARAMS) {
       if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
     }
-    for (const sprite of plantSprites) {
-      const f = new RisographFilter()
+    parsedPlants.forEach((plant, i) => {
+      const sprite = plantSprites[i]
+      const palette = RISO_INK_PALETTES[plant.species] ?? RISO_INK_PALETTES.oak
+      const f = new RisographFilter(palette.inkA, palette.inkB)
       applyParamsToFilter(f)
       sprite.filters = [f]
       activeFilters.push(f)
-    }
+    })
   } else if (style === 'watercolor') {
     for (const p of WATERCOLOR_PARAMS) {
       if (!(p.uniform in paramValues.value)) paramValues.value[p.uniform] = p.default
@@ -174,9 +197,18 @@ function applyStyle(style: StyleId) {
       sprite.filters = [f]
       activeFilters.push(f)
     })
-    // Start ticker to update uWorldMatrix each frame
-    app.ticker.add(updateCrosshatchMatrix)
   }
+
+  // Re-apply wobble if enabled so it isn't lost when switching styles
+  if (wobbleEnabled.value) {
+    for (let i = 0; i < plantSprites.length; i++) {
+      const sprite = plantSprites[i]
+      const f = wobbleFilters[i]
+      sprite.filters = sprite.filters ? [...sprite.filters, f] : [f]
+    }
+  }
+
+  refreshTickerSubscription()
 }
 
 function onSliderInput(uniform: string, value: number) {
@@ -199,8 +231,26 @@ watch(activeStyle, (style) => {
 })
 
 watch(wobbleEnabled, (enabled) => {
-  if (plantSprites.length === 0) return  // not mounted yet
-  bg.filters = enabled ? [wobbleFilter] : []
+  if (plantSprites.length === 0) return
+  if (enabled) {
+    wobbleFilters = []
+    for (let i = 0; i < plantSprites.length; i++) {
+      const sprite = plantSprites[i]
+      const plant = parsedPlants[i]
+      const f = new WobbleFilter(hashId(plant.id) * 0.001)
+      wobbleFilters.push(f)
+      const existing = sprite.filters ? [...(sprite.filters as Filter[])] : []
+      const withoutWobble = existing.filter(f => !(f instanceof WobbleFilter))
+      sprite.filters = [...withoutWobble, f]
+    }
+  } else {
+    for (const sprite of plantSprites) {
+      const existing = sprite.filters ? [...(sprite.filters as Filter[])] : []
+      sprite.filters = existing.filter(f => !(f instanceof WobbleFilter))
+    }
+    wobbleFilters = []
+  }
+  refreshTickerSubscription()
 })
 
 onMounted(async () => {
@@ -211,7 +261,7 @@ onMounted(async () => {
     width: canvas.clientWidth,
     height: canvas.clientHeight,
     antialias: true,
-    background: 0xf5f0e8,
+    background: 0x121212,
     resolution: devicePixelRatio,
     autoDensity: true,
   })
@@ -219,23 +269,21 @@ onMounted(async () => {
   viewport = markRaw(new Viewport({
     screenWidth: canvas.clientWidth,
     screenHeight: canvas.clientHeight,
-    worldWidth: 880,
-    worldHeight: 701,
+    worldWidth: WORLD_SIZE,
+    worldHeight: WORLD_SIZE,
     events: app.renderer.events,
   }))
   viewport.drag().wheel({ smooth: 8 }).decelerate({ friction: 0.93 }).clampZoom({ minScale: 0.1, maxScale: 10 })
   app.stage.addChild(viewport as any)
 
-  const bgTexture = await Assets.load({
-    src: '/demo-landscape.svg',
-    data: { resolution: 3, autoGenerateMipmaps: true },
-  })
-  bg = markRaw(new Sprite(bgTexture))
-  bg.width = 880
-  bg.height = 701
+  // Dark backdrop so wobble has something to deform — uniform gray at low alpha
+  // so the wobble distortion is visible against the canvas color.
+  bg = markRaw(new Sprite(Texture.WHITE))
+  bg.tint = 0x1c1c1c
+  bg.width = WORLD_SIZE
+  bg.height = WORLD_SIZE
   viewport.addChild(bg as any)
-  wobbleFilter = markRaw(new WobbleFilter())
-  // Don't apply yet — wobbleEnabled watcher does it
+
 
   plantLayer = markRaw(new Container())
   viewport.addChild(plantLayer as any)
@@ -248,8 +296,7 @@ onMounted(async () => {
     })
   )
 
-  // Parse real plant positions from the SVG
-  parsedPlants = await parsePlantsFromSvg()
+  parsedPlants = buildGridPlants()
 
   // Create one Sprite per plant
   for (const plant of parsedPlants) {
@@ -264,14 +311,12 @@ onMounted(async () => {
     plantSprites.push(sprite)
   }
 
-  // Fit the full plan to the canvas on load
-  viewport.fit()
-  viewport.moveCenter(440, 350)
+  viewport.fit(true, WORLD_SIZE, WORLD_SIZE)
+  viewport.moveCenter(WORLD_SIZE / 2, WORLD_SIZE / 2)
 })
 
 onUnmounted(async () => {
-  app.ticker?.remove(updateCrosshatchMatrix)
-  await Assets.unload('/demo-landscape.svg')
+  app.ticker?.remove(updateWorldMatrix)
   app?.destroy(true, { children: true, texture: true, context: true })
 })
 </script>
@@ -295,8 +340,8 @@ onUnmounted(async () => {
       </label>
       <div class="divider" />
       <label class="row">
-        <span>Wobble background</span>
-        <input type="checkbox" v-model="wobbleEnabled" aria-label="Wobble background" data-testid="wobble-checkbox" />
+        <span>Wobble plants</span>
+        <input type="checkbox" v-model="wobbleEnabled" aria-label="Wobble plants" data-testid="wobble-checkbox" />
       </label>
       <template v-if="activeStyle === 'risograph'">
         <div class="divider" />

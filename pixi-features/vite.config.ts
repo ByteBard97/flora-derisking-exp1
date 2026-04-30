@@ -11,4 +11,7 @@ export default defineConfig({
     port: 5202,
     strictPort: true,
   },
+  optimizeDeps: {
+    include: ['pixi.js'],
+  },
 });

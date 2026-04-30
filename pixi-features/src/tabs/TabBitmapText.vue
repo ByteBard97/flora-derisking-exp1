@@ -6,49 +6,46 @@
  */
 import { ref, onMounted, onUnmounted, markRaw } from 'vue';
 import { Application, BitmapFont, BitmapText, Text, TextStyle, Container, Graphics } from 'pixi.js';
+import { Viewport } from 'pixi-viewport';
 import { useFps } from '../shared/useFps';
 
 const { fps, frameMs } = useFps();
 const canvasEl = ref<HTMLCanvasElement>();
-const count = ref(200);
 const zoom = ref(1);
 
+const WORLD_W = 1000;
+const HALF_H = 600;
+const DIVIDER_Y = HALF_H;
+const WORLD_H = HALF_H * 2;
+
 let app = markRaw({} as Application);
+let viewport = markRaw({} as Viewport);
 let bitmapLayer = markRaw({} as Container);
 let textLayer = markRaw({} as Container);
-let showBitmap = ref(true);
 
 const FONT_NAME = 'LabelFont';
+const SAMPLE_TEXT = 'Quercus virginiana 24';
+const SAMPLE_FONT_SIZE = 48;
 
-function buildScene(n: number) {
+function buildScene() {
   bitmapLayer.removeChildren();
   textLayer.removeChildren();
 
-  for (let i = 0; i < n; i++) {
-    const x = 60 + Math.random() * 860;
-    const y = 40 + Math.random() * 520;
-    const label = `TR${i + 1}`;
+  const bt = markRaw(new BitmapText({
+    text: SAMPLE_TEXT,
+    style: { fontFamily: FONT_NAME, fontSize: SAMPLE_FONT_SIZE, fill: 0x6ec1ff },
+  }));
+  // Anchor each label to the boundary so they sit directly above/below the
+  // divider line — easy to compare without panning between them.
+  bt.anchor.set(0.5, 1);
+  bt.position.set(WORLD_W / 2, DIVIDER_Y - 16);
+  bitmapLayer.addChild(bt);
 
-    const bt = markRaw(new BitmapText({
-      text: label,
-      style: { fontFamily: FONT_NAME, fontSize: 14, fill: 0xffffff },
-    }));
-    bt.anchor.set(0.5);
-    bt.position.set(x, y);
-    bitmapLayer.addChild(bt);
-
-    const style = new TextStyle({ fontSize: 14, fill: 0x00ff99, fontFamily: 'monospace' });
-    const t = markRaw(new Text({ text: label, style }));
-    t.anchor.set(0.5);
-    t.position.set(x, y + 300);
-    textLayer.addChild(t);
-  }
-}
-
-function applyZoom(z: number) {
-  zoom.value = z;
-  bitmapLayer.scale.set(z);
-  textLayer.scale.set(z);
+  const style = new TextStyle({ fontSize: SAMPLE_FONT_SIZE, fill: 0x00ff99, fontFamily: 'serif' });
+  const t = markRaw(new Text({ text: SAMPLE_TEXT, style }));
+  t.anchor.set(0.5, 0);
+  t.position.set(WORLD_W / 2, DIVIDER_Y + 16);
+  textLayer.addChild(t);
 }
 
 onMounted(async () => {
@@ -64,28 +61,52 @@ onMounted(async () => {
     autoDensity: true,
   });
 
+  // Atlas baked at 64px × 4 resolution → effective 256px glyphs.
+  // Stays crisp up to ~5× zoom of a 48px label; beyond that, raster pixelation
+  // becomes visible — the inherent BitmapText limitation that motivates MSDF.
   BitmapFont.install({
     name: FONT_NAME,
-    style: new TextStyle({ fontSize: 32, fill: 0x00aaff, fontFamily: 'monospace', fontWeight: 'bold' }),
-    chars: [['a', 'z'], ['A', 'Z'], ['0', '9'], '!@#$%&()_+-=.,:'],
-    resolution: 2,
+    style: new TextStyle({ fontSize: 64, fill: 0xffffff, fontFamily: 'serif' }),
+    chars: [['a', 'z'], ['A', 'Z'], ['0', '9'], ' !@#$%&()_+-=.,:'],
+    resolution: 4,
   });
+
+  viewport = markRaw(new Viewport({
+    screenWidth: canvas.clientWidth,
+    screenHeight: canvas.clientHeight,
+    worldWidth: WORLD_W,
+    worldHeight: WORLD_H,
+    events: app.renderer.events,
+  }));
+  viewport.drag().wheel({ smooth: 8 }).decelerate({ friction: 0.93 }).clampZoom({ minScale: 0.2, maxScale: 16 }).pinch();
+  viewport.on('zoomed', () => { zoom.value = viewport.scale.x; });
+  app.stage.addChild(viewport);
 
   bitmapLayer = markRaw(new Container());
   textLayer = markRaw(new Container());
 
+  // Tinted half-backgrounds so the boundary is unmissable even when panning.
+  const topBg = markRaw(new Graphics());
+  topBg.rect(0, 0, WORLD_W, HALF_H).fill({ color: 0x0a1428, alpha: 0.6 });
+  const bottomBg = markRaw(new Graphics());
+  bottomBg.rect(0, HALF_H, WORLD_W, HALF_H).fill({ color: 0x0a1f14, alpha: 0.6 });
+
+  // Bold divider line.
   const divider = markRaw(new Graphics());
-  divider.setStrokeStyle({ width: 1, color: 0x444444 });
-  divider.moveTo(0, 300).lineTo(1000, 300).stroke();
+  divider.moveTo(-2000, DIVIDER_Y).lineTo(WORLD_W + 2000, DIVIDER_Y)
+    .stroke({ width: 4, color: 0xff8800, alpha: 0.9 });
 
-  const labelA = markRaw(new Text({ text: 'BitmapText (top) — GPU texture atlas, zoom-stable', style: new TextStyle({ fontSize: 11, fill: 0x888888 }) }));
-  labelA.position.set(10, 8);
-  const labelB = markRaw(new Text({ text: 'Text (bottom) — CPU rasterised, blurry when zoomed in', style: new TextStyle({ fontSize: 11, fill: 0x888888 }) }));
-  labelB.position.set(10, 308);
+  const headerStyle = new TextStyle({ fontSize: 14, fill: 0xffaa44, fontFamily: 'monospace', fontWeight: 'bold' });
+  const labelA = markRaw(new Text({ text: '▲ BitmapText (atlas)', style: headerStyle }));
+  labelA.position.set(12, 12);
+  const labelB = markRaw(new Text({ text: '▼ Text (CPU rasterised)', style: headerStyle }));
+  labelB.position.set(12, WORLD_H - 28);
 
-  app.stage.addChild(divider, labelA, labelB, bitmapLayer, textLayer);
+  viewport.addChild(topBg, bottomBg, divider, labelA, labelB, bitmapLayer, textLayer);
 
-  buildScene(count.value);
+  buildScene();
+  viewport.fit(true, WORLD_W, WORLD_H);
+  viewport.moveCenter(WORLD_W / 2, WORLD_H / 2);
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
@@ -115,16 +136,10 @@ onUnmounted(() => {
       <div>{{ frameMs }} ms</div>
     </div>
     <div class="controls">
-      <label>Labels <input type="range" v-model.number="count" min="10" max="500" step="10" style="width:80px" /> {{ count }}</label>
-      <button @click="buildScene(count)">Rebuild</button>
-      <div class="sep" />
-      <div style="font-size:11px;color:#777;margin-bottom:2px">Zoom</div>
-      <div class="zoom-btns">
-        <button v-for="z in [0.5, 1, 2, 4, 8]" :key="z" :class="{ active: zoom === z }" @click="applyZoom(z)">{{ z }}×</button>
-      </div>
-      <div style="font-size:10px;color:#555;margin-top:4px">Zoom in to see BitmapText stay crisp<br>while Text gets blurry</div>
+      <div style="font-size:11px;color:#777">zoom: {{ zoom.toFixed(2) }}×</div>
+      <div style="font-size:10px;color:#555;margin-top:2px">drag to pan · wheel to zoom<br>top stays crisp · bottom goes blurry</div>
     </div>
-    <div class="hint">BitmapText = one texture atlas · Text = per-object canvas · zoom to compare</div>
+    <div class="hint">BitmapText (top, blue) baked atlas · Text (bottom, green) CPU rasterised · MSDF tab is the third tier</div>
   </div>
 </template>
 
