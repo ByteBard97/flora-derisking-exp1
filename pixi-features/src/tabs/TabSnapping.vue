@@ -154,6 +154,7 @@ function onStagePM(e: any) {
     const pos = snapped ?? wp;
     VERTS[draggingVertIdx].x = pos.x;
     VERTS[draggingVertIdx].y = pos.y;
+    snapped = null;  // don't let vertex snap bleed into orange square position
     drawStatic();
     drawShape();
     return;
