@@ -191,10 +191,10 @@ onMounted(async () => {
   app.stage.position.set(camX, camY);
   app.stage.eventMode = 'static';
 
-  gridGfx   = markRaw(new Graphics());
-  staticGfx = markRaw(new Graphics());
-  shapeGfx  = markRaw(new Graphics());
-  snapGfx   = markRaw(new Graphics());
+  gridGfx   = markRaw(new Graphics()); gridGfx.eventMode   = 'passive';
+  staticGfx = markRaw(new Graphics()); staticGfx.eventMode = 'passive';
+  shapeGfx  = markRaw(new Graphics()); shapeGfx.eventMode  = 'passive';
+  snapGfx   = markRaw(new Graphics()); snapGfx.eventMode   = 'passive';
 
   const bg = markRaw(new Graphics());
   bg.setFillStyle({ color: 0x000000, alpha: 0 });
