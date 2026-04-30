@@ -184,6 +184,16 @@ function onStagePointerUp() {
   isPanning = false;
 }
 
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  selectedIds.value = new Set();
+  refreshShapes();
+  isLasso = false;
+  isDraggingShapes = false;
+  isPanning = false;
+  lassoGfx.clear();
+}
+
 function onWheel(e: WheelEvent) {
   e.preventDefault();
   const rect = canvasEl.value!.getBoundingClientRect();
@@ -224,7 +234,7 @@ onMounted(async () => {
   bg.rect(-5000, -5000, 10000, 10000).fill();
   bg.eventMode = 'static';
   bg.on('pointerdown', onBgPointerDown);
-  worldLayer.addChildAt(bg, 0);
+  app.stage.addChildAt(bg, 0);
 
   app.stage.eventMode = 'static';
   app.stage.on('pointermove', onStagePointerMove);
@@ -245,12 +255,14 @@ onMounted(async () => {
     })
   }
 
+  window.addEventListener('keydown', onKeyDown);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 });
 
 onUnmounted(() => {
   window.__pixiTestBridge = undefined
   window.__pixiTestBridgeReady = false
+  window.removeEventListener('keydown', onKeyDown);
   canvasEl.value?.removeEventListener('wheel', onWheel);
   app?.destroy(true, { children: true, texture: true, context: true });
 });
@@ -275,7 +287,7 @@ onUnmounted(() => {
     <div class="hint">
       <kbd>click</kbd> select &nbsp; <kbd>shift+click</kbd> multi &nbsp;
       <kbd>drag empty</kbd> lasso &nbsp; <kbd>drag shape</kbd> move &nbsp;
-      <kbd>alt+drag</kbd> pan &nbsp; <kbd>scroll</kbd> zoom
+      <kbd>alt+drag</kbd> pan &nbsp; <kbd>scroll</kbd> zoom &nbsp; <kbd>esc</kbd> clear
     </div>
   </div>
 </template>
