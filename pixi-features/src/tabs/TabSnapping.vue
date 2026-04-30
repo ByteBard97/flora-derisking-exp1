@@ -3,8 +3,8 @@
  * Snapping derisking fixture.
  * Tests: grid snap, vertex snap, edge snap with visual indicators.
  */
-import { ref, onMounted, onUnmounted, markRaw } from 'vue';
-import { Application, Graphics, Container } from 'pixi.js';
+import { ref, onMounted, onUnmounted, markRaw, watch } from 'vue';
+import { Application, Graphics, Container, Rectangle } from 'pixi.js';
 import { useFps } from '../shared/useFps';
 import { snapToGrid, snapToVertex, snapToEdge, type Pt } from '../lib/snapUtils';
 
@@ -16,7 +16,7 @@ const snapModes = ref({ grid: true, vertex: true, edge: true });
 const snapInfo = ref('');
 
 // Static scene: vertices and edges
-const VERTS: Pt[] = [
+let VERTS: Pt[] = [
   { x: 160, y: 120 }, { x: 360, y: 100 }, { x: 500, y: 260 },
   { x: 280, y: 340 }, { x: 100, y: 300 }, { x: 420, y: 400 },
 ];
@@ -38,6 +38,7 @@ let isDragging = false;
 let dragOffset: Pt = { x: 0, y: 0 };
 let isPanning = false;
 let panStart: Pt = { x: 0, y: 0 };
+let draggingVertIdx: number = -1;
 
 function screenToWorld(sx: number, sy: number): Pt {
   return { x: (sx - camX) / zoom, y: (sy - camY) / zoom };
@@ -132,6 +133,13 @@ function onBgPD(e: any) {
     return;
   }
   const wp = screenToWorld(e.global.x, e.global.y);
+  for (let i = 0; i < VERTS.length; i++) {
+    if (Math.hypot(wp.x - VERTS[i].x, wp.y - VERTS[i].y) < 12) {
+      draggingVertIdx = i;
+      isDragging = false;
+      return;
+    }
+  }
   const SIZE = 20;
   if (Math.abs(wp.x - shapePos.x) < SIZE && Math.abs(wp.y - shapePos.y) < SIZE) {
     isDragging = true;
@@ -140,6 +148,14 @@ function onBgPD(e: any) {
 }
 
 function onStagePM(e: any) {
+  if (draggingVertIdx >= 0) {
+    const wp = screenToWorld(e.global.x, e.global.y);
+    VERTS[draggingVertIdx].x = wp.x;
+    VERTS[draggingVertIdx].y = wp.y;
+    drawStatic();
+    drawShape();
+    return;
+  }
   if (isPanning) {
     camX = e.global.x - panStart.x;
     camY = e.global.y - panStart.y;
@@ -154,6 +170,7 @@ function onStagePM(e: any) {
 }
 
 function onStagePU() {
+  draggingVertIdx = -1;
   if (isDragging && snapped) {
     shapePos = { ...snapped };
     snapped = null;
@@ -190,19 +207,15 @@ onMounted(async () => {
   camX = 40; camY = 40;
   app.stage.position.set(camX, camY);
   app.stage.eventMode = 'static';
+  app.stage.hitArea = new Rectangle(-10000, -10000, 20000, 20000);
 
   gridGfx   = markRaw(new Graphics()); gridGfx.eventMode   = 'passive';
   staticGfx = markRaw(new Graphics()); staticGfx.eventMode = 'passive';
   shapeGfx  = markRaw(new Graphics()); shapeGfx.eventMode  = 'passive';
   snapGfx   = markRaw(new Graphics()); snapGfx.eventMode   = 'passive';
 
-  const bg = markRaw(new Graphics());
-  bg.setFillStyle({ color: 0x000000, alpha: 0 });
-  bg.rect(-5000, -5000, 10000, 10000).fill();
-  bg.eventMode = 'static';
-  bg.on('pointerdown', onBgPD);
-
-  app.stage.addChild(gridGfx, bg, staticGfx, shapeGfx, snapGfx);
+  app.stage.addChild(gridGfx, staticGfx, shapeGfx, snapGfx);
+  app.stage.on('pointerdown', onBgPD);
   app.stage.on('pointermove', onStagePM);
   app.stage.on('pointerup', onStagePU);
   app.stage.on('pointerupoutside', onStagePU);
@@ -210,6 +223,8 @@ onMounted(async () => {
   drawGrid();
   drawStatic();
   drawShape();
+
+  watch(snapModes, () => { drawShape() }, { deep: true });
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
