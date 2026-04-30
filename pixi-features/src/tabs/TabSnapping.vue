@@ -155,7 +155,23 @@ function onBgPD(e: any) {
 function onStagePM(e: any) {
   if (draggingVertIdx >= 0) {
     const wp = screenToWorld(e.global.x, e.global.y);
-    applySnap(wp.x, wp.y);
+    // Vertex-to-vertex snap is excluded here: it would merge vertices in strict mode
+    // and create confusing off-grid pull in permissive mode. Grid + edge only.
+    snapped = null;
+    snapInfo.value = '';
+    if (snapStrength.value !== 'off') {
+      const thresh = snapStrength.value === 'strict' ? Infinity : 20 / zoom;
+      if (snapModes.value.edge) {
+        const se = snapToEdge(wp.x, wp.y, EDGES, thresh);
+        if (se) { snapped = se; snapInfo.value = 'edge'; }
+      }
+      if (!snapped && snapModes.value.grid) {
+        const sg = snapToGrid(wp.x, wp.y, GRID);
+        if (Math.hypot(wp.x - sg.x, wp.y - sg.y) < thresh) {
+          snapped = sg; snapInfo.value = `grid (${sg.x}, ${sg.y})`;
+        }
+      }
+    }
     const pos = snapped ?? wp;
     VERTS[draggingVertIdx].x = pos.x;
     VERTS[draggingVertIdx].y = pos.y;
