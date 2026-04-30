@@ -13,6 +13,7 @@ const canvasEl = ref<HTMLCanvasElement>();
 
 const GRID = 40;
 const snapModes = ref({ grid: true, vertex: true, edge: true });
+const snapStrength = ref<'off' | 'permissive' | 'strict'>('permissive');
 const snapInfo = ref('');
 
 // Static scene: vertices and edges
@@ -47,7 +48,11 @@ function screenToWorld(sx: number, sy: number): Pt {
 function applySnap(wx: number, wy: number) {
   snapped = null;
   snapInfo.value = '';
-  const thresh = 20 / zoom;
+  if (snapStrength.value === 'off') return;
+
+  // Permissive: snap only within 20 screen-px of a target.
+  // Strict: snap to nearest target regardless of distance (threshold = Infinity).
+  const thresh = snapStrength.value === 'strict' ? Infinity : 20 / zoom;
 
   if (snapModes.value.vertex) {
     const sv = snapToVertex(wx, wy, VERTS, thresh);
@@ -150,11 +155,11 @@ function onBgPD(e: any) {
 function onStagePM(e: any) {
   if (draggingVertIdx >= 0) {
     const wp = screenToWorld(e.global.x, e.global.y);
-    // Only grid-snap vertices — vertex/edge snap would pull to off-grid positions.
-    // Always snap to nearest grid when enabled (no threshold) so zoom level doesn't change behavior.
-    const pos = snapModes.value.grid ? snapToGrid(wp.x, wp.y, GRID) : wp;
+    applySnap(wp.x, wp.y);
+    const pos = snapped ?? wp;
     VERTS[draggingVertIdx].x = pos.x;
     VERTS[draggingVertIdx].y = pos.y;
+    snapped = null;
     drawStatic();
     drawShape();
     return;
@@ -228,6 +233,7 @@ onMounted(async () => {
   drawShape();
 
   watch(snapModes, () => { drawShape() }, { deep: true });
+  watch(snapStrength, () => { drawShape() });
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge')
@@ -266,9 +272,19 @@ onUnmounted(() => {
       <div v-if="snapInfo" class="snap-info">⊕ {{ snapInfo }}</div>
     </div>
     <div class="controls">
-      <label><input type="checkbox" v-model="snapModes.grid" /> Grid</label>
-      <label><input type="checkbox" v-model="snapModes.vertex" /> Vertex</label>
-      <label><input type="checkbox" v-model="snapModes.edge" /> Edge</label>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Targets</span>
+        <label><input type="checkbox" v-model="snapModes.grid" /> Grid</label>
+        <label><input type="checkbox" v-model="snapModes.vertex" /> Vertex</label>
+        <label><input type="checkbox" v-model="snapModes.edge" /> Edge</label>
+      </div>
+      <div class="ctrl-sep" />
+      <div class="ctrl-group">
+        <span class="ctrl-label">Strength</span>
+        <label><input type="radio" v-model="snapStrength" value="off" /> Off</label>
+        <label><input type="radio" v-model="snapStrength" value="permissive" /> Permissive</label>
+        <label><input type="radio" v-model="snapStrength" value="strict" /> Strict</label>
+      </div>
     </div>
     <div class="hint">Drag the orange square · <kbd>alt+drag</kbd> pan · <kbd>scroll</kbd> zoom</div>
   </div>
@@ -284,11 +300,14 @@ canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .snap-info { color: #ffdd00; font-weight: bold; }
 .controls {
   position: absolute; top: 10px; right: 10px;
-  display: flex; gap: 12px; align-items: center;
-  font-family: monospace; font-size: 13px; color: #bbb;
+  display: flex; gap: 10px; align-items: center;
+  font-family: monospace; font-size: 12px; color: #bbb;
   background: rgba(0,0,0,0.6); padding: 8px 14px; border-radius: 4px;
 }
-label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.ctrl-group { display: flex; align-items: center; gap: 8px; }
+.ctrl-label { color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.ctrl-sep { width: 1px; height: 20px; background: #333; }
+label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .hint {
   position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   font-family: monospace; font-size: 11px; color: #555;
