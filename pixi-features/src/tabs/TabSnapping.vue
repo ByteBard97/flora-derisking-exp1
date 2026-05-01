@@ -349,8 +349,13 @@ onUnmounted(() => {
       </div>
       <div class="ctrl-sep" />
       <div class="ctrl-group">
+        <span class="ctrl-label">px/ft</span>
+        <input type="range" v-model.number="pixelsPerFoot" min="45" max="55" step="0.1" class="px-slider" />
+        <span class="px-readout">{{ pixelsPerFoot.toFixed(1) }}</span>
+      </div>
+      <div class="ctrl-sep" />
+      <div class="ctrl-group">
         <span class="ctrl-label">Scale</span>
-        <label>px/ft <input type="number" v-model.number="pixelsPerFoot" min="5" max="200" step="0.5" class="num-input" /></label>
         <label>grid (ft) <input type="number" v-model.number="gridFeet" min="0.25" max="20" step="0.25" class="num-input" /></label>
         <label>thresh (ft) <input type="number" v-model.number="thresholdFeet" min="0.05" max="5" step="0.05" class="num-input" /></label>
       </div>
@@ -368,6 +373,8 @@ canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .sep { height: 6px; }
 .snap-info { color: #ffdd00; font-weight: bold; }
 .num-input { width: 52px; background: #222; color: #ccc; border: 1px solid #444; border-radius: 3px; padding: 2px 4px; font-family: monospace; font-size: 11px; }
+.px-slider { width: 240px; cursor: pointer; accent-color: #6af; }
+.px-readout { font-family: monospace; font-size: 12px; color: #6af; min-width: 36px; }
 .snap-all-btn { background: #2a2a2a; color: #ccc; border: 1px solid #555; border-radius: 3px; padding: 4px 10px; font-family: monospace; font-size: 11px; cursor: pointer; }
 .snap-all-btn:hover { background: #3a3a3a; color: #fff; }
 .scale-info { color: #6af; font-size: 10px; }
