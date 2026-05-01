@@ -7,6 +7,7 @@ import { ref, onMounted, onUnmounted, markRaw, watch } from 'vue';
 import { Application, Graphics, Container, Rectangle } from 'pixi.js';
 import { useFps } from '../shared/useFps';
 import { snapToGrid, snapToVertex, snapToEdge, type Pt } from '../lib/snapUtils';
+import { GridFilter } from '../lib/filters/GridFilter';
 
 const { fps, frameMs } = useFps();
 const canvasEl = ref<HTMLCanvasElement>();
@@ -30,7 +31,8 @@ const EDGES: [Pt, Pt][] = [
 ];
 
 let app = markRaw({} as Application);
-let gridGfx   = markRaw({} as Graphics);
+let gridRect   = markRaw({} as Graphics);
+let gridFilter = markRaw({} as GridFilter);
 let staticGfx = markRaw({} as Graphics);
 let shapeGfx  = markRaw({} as Graphics);
 let snapGfx   = markRaw({} as Graphics);
@@ -53,72 +55,58 @@ function applySnap(wx: number, wy: number) {
   snapInfo.value = '';
   if (snapStrength.value === 'off') return;
 
-  // Permissive: snap only within threshold (world units) of a target.
-  // Strict: snap to nearest target regardless of distance (threshold = Infinity).
+  // Permissive: snap only within threshold (world units).
+  // Strict: always snap — pick the nearest candidate across all enabled types.
   const thresh = snapStrength.value === 'strict' ? Infinity : (thresholdFeet.value * pixelsPerFoot.value);
+
+  let best: Pt | null = null;
+  let bestDist = Infinity;
+  let bestInfo = '';
 
   if (snapModes.value.vertex) {
     const sv = snapToVertex(wx, wy, VERTS, thresh);
-    if (sv) { snapped = sv; snapInfo.value = 'vertex'; return; }
+    if (sv) { const d = Math.hypot(wx - sv.x, wy - sv.y); if (d < bestDist) { best = sv; bestDist = d; bestInfo = 'vertex'; } }
   }
   if (snapModes.value.edge) {
     const se = snapToEdge(wx, wy, EDGES, thresh);
-    if (se) { snapped = se; snapInfo.value = 'edge'; return; }
+    if (se) { const d = Math.hypot(wx - se.x, wy - se.y); if (d < bestDist) { best = se; bestDist = d; bestInfo = 'edge'; } }
   }
   if (snapModes.value.grid) {
     const sg = snapToGrid(wx, wy, gridPx());
-    if (Math.hypot(wx - sg.x, wy - sg.y) < thresh) {
-      snapped = sg; snapInfo.value = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`;
-    }
+    const d = Math.hypot(wx - sg.x, wy - sg.y);
+    if (d < thresh && d < bestDist) { best = sg; bestDist = d; bestInfo = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`; }
   }
+
+  if (best) { snapped = best; snapInfo.value = bestInfo; }
+}
+
+function snapAllToGrid() {
+  const gp = gridPx();
+  for (const v of VERTS) {
+    const g = snapToGrid(v.x, v.y, gp);
+    v.x = g.x; v.y = g.y;
+  }
+  shapePos = snapToGrid(shapePos.x, shapePos.y, gp);
+  drawStatic();
+  drawShape();
 }
 
 function gridPx(): number {
   return pixelsPerFoot.value * gridFeet.value;
 }
 
-function drawGrid() {
-  gridGfx.clear();
-  const gp = gridPx();
-
-  // Screen bounds in world coords (draw only visible area + 1 cell margin)
-  const wLeft   = -camX / zoom - gp;
-  const wRight  = (canvasEl.value!.clientWidth  - camX) / zoom + gp;
-  const wTop    = -camY / zoom - gp;
-  const wBottom = (canvasEl.value!.clientHeight - camY) / zoom + gp;
-
-  // Minor lines (1 ft grid) — only when screen spacing > 8px to avoid moiré
-  const screenSpacing = gp * zoom;
-  if (screenSpacing >= 8) {
-    // NO pixelLine — fractional world positions need AA, not integer snapping
-    gridGfx.setStrokeStyle({ width: 1, color: 0x2a2a2a, alpha: Math.min(1, (screenSpacing - 8) / 16) });
-    const startX = Math.floor(wLeft / gp) * gp;
-    const startY = Math.floor(wTop  / gp) * gp;
-    for (let x = startX; x <= wRight; x += gp) gridGfx.moveTo(x, wTop).lineTo(x, wBottom);
-    for (let y = startY; y <= wBottom; y += gp) gridGfx.moveTo(wLeft, y).lineTo(wRight, y);
-    gridGfx.stroke();
-  }
-
-  // Major lines (5 ft) — always drawn, slightly brighter
-  const majorGp = gp * 5;
-  const screenMajorSpacing = majorGp * zoom;
-  gridGfx.setStrokeStyle({ width: 1, color: 0x3a3a3a, alpha: Math.min(1, screenMajorSpacing / 40) });
-  const startMX = Math.floor(wLeft   / majorGp) * majorGp;
-  const startMY = Math.floor(wTop    / majorGp) * majorGp;
-  for (let x = startMX; x <= wRight;  x += majorGp) gridGfx.moveTo(x, wTop).lineTo(x, wBottom);
-  for (let y = startMY; y <= wBottom; y += majorGp) gridGfx.moveTo(wLeft, y).lineTo(wRight, y);
-  gridGfx.stroke();
-
-  // Dots at major intersections (when zoomed in enough)
-  if (screenMajorSpacing >= 20) {
-    for (let x = startMX; x <= wRight; x += majorGp) {
-      for (let y = startMY; y <= wBottom; y += majorGp) {
-        gridGfx.beginPath();
-        gridGfx.setFillStyle({ color: 0x444444 });
-        gridGfx.circle(x, y, 1.5).fill();
-      }
-    }
-  }
+function updateGridUniforms() {
+  // screen→world inverse of: screen = world * zoom + cam
+  const iz = 1 / zoom
+  const m = new Float32Array([
+    iz, 0,  0,
+    0,  iz, 0,
+    -camX * iz, -camY * iz, 1,
+  ])
+  const u = (gridFilter.resources.gridUniforms as any).uniforms
+  u.uWorldMatrix = m
+  u.uGridPx = gridPx()
+  u.uZoom = zoom
 }
 
 function drawStatic() {
@@ -195,17 +183,26 @@ function onStagePM(e: any) {
     snapped = null;
     snapInfo.value = '';
     if (snapStrength.value !== 'off') {
+      // Vertex-to-vertex snap excluded: merges vertices in strict, off-grid pull in permissive.
+      // Pick nearest candidate across edge + grid.
       const thresh = snapStrength.value === 'strict' ? Infinity : (thresholdFeet.value * pixelsPerFoot.value);
+      let best: Pt | null = null;
+      let bestDist = Infinity;
+      let bestInfo = '';
+
       if (snapModes.value.edge) {
-        const se = snapToEdge(wp.x, wp.y, EDGES, thresh);
-        if (se) { snapped = se; snapInfo.value = 'edge'; }
+        // Exclude edges connected to the vertex being dragged — they move with it
+        const v = VERTS[draggingVertIdx];
+        const otherEdges = EDGES.filter(([a, b]) => a !== v && b !== v);
+        const se = snapToEdge(wp.x, wp.y, otherEdges, thresh);
+        if (se) { const d = Math.hypot(wp.x - se.x, wp.y - se.y); if (d < bestDist) { best = se; bestDist = d; bestInfo = 'edge'; } }
       }
-      if (!snapped && snapModes.value.grid) {
+      if (snapModes.value.grid) {
         const sg = snapToGrid(wp.x, wp.y, gridPx());
-        if (Math.hypot(wp.x - sg.x, wp.y - sg.y) < thresh) {
-          snapped = sg; snapInfo.value = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`;
-        }
+        const d = Math.hypot(wp.x - sg.x, wp.y - sg.y);
+        if (d < thresh && d < bestDist) { best = sg; bestDist = d; bestInfo = `grid (${(sg.x / pixelsPerFoot.value).toFixed(2)}ft, ${(sg.y / pixelsPerFoot.value).toFixed(2)}ft)`; }
       }
+      if (best) { snapped = best; snapInfo.value = bestInfo; }
     }
     const pos = snapped ?? wp;
     VERTS[draggingVertIdx].x = pos.x;
@@ -252,7 +249,7 @@ function onWheel(e: WheelEvent) {
   camY = sy - wy * zoom;
   app.stage.position.set(camX, camY);
   app.stage.scale.set(zoom);
-  drawGrid();
+  updateGridUniforms();
   drawShape(); // refresh snap indicator size (sz = 14/zoom)
 }
 
@@ -269,25 +266,30 @@ onMounted(async () => {
   app.stage.eventMode = 'static';
   app.stage.hitArea = new Rectangle(-10000, -10000, 20000, 20000);
 
-  gridGfx   = markRaw(new Graphics()); gridGfx.eventMode   = 'passive';
   staticGfx = markRaw(new Graphics()); staticGfx.eventMode = 'passive';
   shapeGfx  = markRaw(new Graphics()); shapeGfx.eventMode  = 'passive';
   snapGfx   = markRaw(new Graphics()); snapGfx.eventMode   = 'passive';
 
-  app.stage.addChild(gridGfx, staticGfx, shapeGfx, snapGfx);
+  gridFilter = markRaw(new GridFilter());
+  gridRect   = markRaw(new Graphics());
+  gridRect.eventMode = 'passive';
+  gridRect.rect(-5000, -5000, 10000, 10000).fill({ color: 0x000000, alpha: 1 });
+  gridRect.filters = [gridFilter];
+
+  app.stage.addChild(gridRect, staticGfx, shapeGfx, snapGfx);
   app.stage.on('pointerdown', onBgPD);
   app.stage.on('pointermove', onStagePM);
   app.stage.on('pointerup', onStagePU);
   app.stage.on('pointerupoutside', onStagePU);
 
-  drawGrid();
+  updateGridUniforms();
   drawStatic();
   drawShape();
 
   watch(snapModes, () => { drawShape() }, { deep: true });
   watch(snapStrength, () => { drawShape() });
-  watch(pixelsPerFoot, () => { drawGrid(); drawShape(); });
-  watch(gridFeet,      () => { drawGrid(); drawShape(); });
+  watch(pixelsPerFoot, () => { updateGridUniforms(); drawShape(); });
+  watch(gridFeet,      () => { updateGridUniforms(); drawShape(); });
   watch(thresholdFeet, () => { drawShape(); });
 
   if (import.meta.env.DEV) {
@@ -343,6 +345,10 @@ onUnmounted(() => {
       </div>
       <div class="ctrl-sep" />
       <div class="ctrl-group">
+        <button class="snap-all-btn" @click="snapAllToGrid">Snap all to grid</button>
+      </div>
+      <div class="ctrl-sep" />
+      <div class="ctrl-group">
         <span class="ctrl-label">Scale</span>
         <label>px/ft <input type="number" v-model.number="pixelsPerFoot" min="5" max="200" step="0.5" class="num-input" /></label>
         <label>grid (ft) <input type="number" v-model.number="gridFeet" min="0.25" max="20" step="0.25" class="num-input" /></label>
@@ -362,6 +368,8 @@ canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .sep { height: 6px; }
 .snap-info { color: #ffdd00; font-weight: bold; }
 .num-input { width: 52px; background: #222; color: #ccc; border: 1px solid #444; border-radius: 3px; padding: 2px 4px; font-family: monospace; font-size: 11px; }
+.snap-all-btn { background: #2a2a2a; color: #ccc; border: 1px solid #555; border-radius: 3px; padding: 4px 10px; font-family: monospace; font-size: 11px; cursor: pointer; }
+.snap-all-btn:hover { background: #3a3a3a; color: #fff; }
 .scale-info { color: #6af; font-size: 10px; }
 .controls {
   position: absolute; top: 10px; right: 10px;
