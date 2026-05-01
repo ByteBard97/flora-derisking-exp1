@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, markRaw } from 'vue';
+import { ref, onMounted, onUnmounted, markRaw, computed } from 'vue';
 import {
   Application, Graphics, BitmapText, BitmapFont, Container,
 } from 'pixi.js';
@@ -19,6 +19,11 @@ const PX_PER_INCH = 96;
 
 type Mode = 'line' | 'area' | 'path';
 const mode = ref<Mode>('line');
+
+const endCap = ref<'tick' | 'arrow'>('tick');
+const persistMode = ref<'ephemeral' | 'sticky'>('ephemeral');
+const angleMode = ref<'free' | 'h' | 'v' | '45'>('free');
+const labelStyle = ref<'rotated' | 'horizontal'>('rotated');
 
 let app = markRaw({} as Application);
 let guideLayer  = markRaw({} as Container);
@@ -41,6 +46,11 @@ const BED_SEGMENTS: CubicSegment[] = [
 ];
 let pathHovered = false;
 
+const stickyMeasurements: Container[] = [];
+let stickyLayer = markRaw({} as Container);
+let activeLabelContainer: Container | null = null;
+let onKey: ((e: KeyboardEvent) => void) | null = null;
+
 function resetState() {
   lineStart = null;
   areaVerts.value = [];
@@ -49,6 +59,10 @@ function resetState() {
   labelText.text = '';
   pathHovered = false;
   redrawBed(false);
+  if (activeLabelContainer) {
+    labelLayer.removeChild(activeLabelContainer);
+    activeLabelContainer = null;
+  }
 }
 
 function redrawBed(hovered: boolean) {
@@ -63,13 +77,98 @@ function redrawBed(hovered: boolean) {
   pathGfx.closePath().fill().stroke();
 }
 
-function drawRubberBand(from: Point, to: Point) {
-  guideGfx.clear();
-  guideGfx.setStrokeStyle({ pixelLine: true, color: 0xff4444 });
-  guideGfx.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke();
-  guideGfx.beginPath();
-  guideGfx.setFillStyle({ color: 0xff4444 });
-  guideGfx.circle(from.x, from.y, 4).fill();
+function applyAngleConstraint(from: Point, raw: Point): Point {
+  if (angleMode.value === 'free') return raw;
+  if (angleMode.value === 'h') return { x: raw.x, y: from.y };
+  if (angleMode.value === 'v') return { x: from.x, y: raw.y };
+  const dx = raw.x - from.x, dy = raw.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0) return raw;
+  const raw_angle = Math.atan2(dy, dx);
+  const angle = Math.round(raw_angle / (Math.PI / 4)) * (Math.PI / 4);
+  return { x: from.x + Math.cos(angle) * dist, y: from.y + Math.sin(angle) * dist };
+}
+
+function drawDimLine(gfx: Graphics, from: Point, to: Point) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const angle = Math.atan2(dy, dx);
+  const len = Math.hypot(dx, dy);
+
+  // Line
+  gfx.setStrokeStyle({ width: 1.5, color: 0xd0dde8 });
+  gfx.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke();
+  gfx.beginPath();
+
+  const TICK_LEN = 10;
+  const ARROW_LEN = 12;
+  const ARROW_WIDTH = 5;
+  const perp = angle + Math.PI / 2;
+  const px = Math.cos(perp), py = Math.sin(perp);
+
+  if (endCap.value === 'tick') {
+    // Perpendicular tick at from
+    gfx.setStrokeStyle({ width: 1.5, color: 0xd0dde8 });
+    gfx.moveTo(from.x - px * TICK_LEN/2, from.y - py * TICK_LEN/2)
+       .lineTo(from.x + px * TICK_LEN/2, from.y + py * TICK_LEN/2).stroke();
+    gfx.beginPath();
+    // Perpendicular tick at to
+    gfx.moveTo(to.x - px * TICK_LEN/2, to.y - py * TICK_LEN/2)
+       .lineTo(to.x + px * TICK_LEN/2, to.y + py * TICK_LEN/2).stroke();
+    gfx.beginPath();
+  } else {
+    // Filled arrowhead pointing inward at from
+    const ax = Math.cos(angle), ay = Math.sin(angle);
+    gfx.setFillStyle({ color: 0xd0dde8 });
+    gfx.moveTo(from.x, from.y)
+       .lineTo(from.x + ax * ARROW_LEN - px * ARROW_WIDTH, from.y + ay * ARROW_LEN - py * ARROW_WIDTH)
+       .lineTo(from.x + ax * ARROW_LEN + px * ARROW_WIDTH, from.y + ay * ARROW_LEN + py * ARROW_WIDTH)
+       .closePath().fill();
+    gfx.beginPath();
+    // Filled arrowhead pointing inward at to (reversed direction)
+    const bx = -ax, by = -ay;
+    gfx.moveTo(to.x, to.y)
+       .lineTo(to.x + bx * ARROW_LEN - px * ARROW_WIDTH, to.y + by * ARROW_LEN - py * ARROW_WIDTH)
+       .lineTo(to.x + bx * ARROW_LEN + px * ARROW_WIDTH, to.y + by * ARROW_LEN + py * ARROW_WIDTH)
+       .closePath().fill();
+    gfx.beginPath();
+  }
+}
+
+function makeLabelContainer(text: string): Container {
+  const c = new Container();
+  const badge = new Graphics();
+  const txt = new BitmapText({ text, style: { fontFamily: 'MeasureFont', fontSize: 13 } });
+  // Measure text first by setting it, then read width/height
+  // Badge: rounded rect, 6px padding horizontal, 3px vertical
+  const PAD_X = 8, PAD_Y = 4;
+  const w = txt.width + PAD_X * 2;
+  const h = txt.height + PAD_Y * 2;
+  badge.setFillStyle({ color: 0x0a0e14, alpha: 0.82 });
+  badge.setStrokeStyle({ width: 1, color: 0x4a6a8a });
+  badge.roundRect(-w/2, -h/2, w, h, 4).fill().stroke();
+  txt.position.set(-txt.width/2, -txt.height/2);
+  c.addChild(badge, txt);
+  return c;
+}
+
+function normalizeAngle(a: number): number {
+  if (a > Math.PI / 2) return a - Math.PI;
+  if (a < -Math.PI / 2) return a + Math.PI;
+  return a;
+}
+
+function positionLabel(container: Container, from: Point, to: Point) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const angle = normalizeAngle(Math.atan2(dy, dx));
+  const mid = midpoint(from, to);
+  container.position.set(mid.x, mid.y);
+  if (labelStyle.value === 'rotated') {
+    container.rotation = angle;
+  } else {
+    container.rotation = 0;
+    const perp = angle + Math.PI / 2;
+    container.position.set(mid.x + Math.cos(perp) * 14, mid.y + Math.sin(perp) * 14);
+  }
 }
 
 function drawAreaGuide(verts: Point[], cur: Point) {
@@ -115,9 +214,17 @@ function onMove(e: PointerEvent) {
 
   if (mode.value === 'line') {
     if (lineStart) {
-      drawRubberBand(lineStart, cursor);
-      const distPx = euclideanPx(lineStart, cursor);
-      updateLabel(formatFeet(pxToFeet(distPx, PX_PER_INCH, drawingScale.value)), midpoint(lineStart, cursor));
+      const constrained = applyAngleConstraint(lineStart, cursor);
+      guideGfx.clear();
+      drawDimLine(guideGfx, lineStart, constrained);
+      const distPx = euclideanPx(lineStart, constrained);
+      const text = formatFeet(pxToFeet(distPx, PX_PER_INCH, drawingScale.value));
+      if (activeLabelContainer) {
+        labelLayer.removeChild(activeLabelContainer);
+      }
+      activeLabelContainer = makeLabelContainer(text);
+      positionLabel(activeLabelContainer, lineStart, constrained);
+      labelLayer.addChild(activeLabelContainer);
     }
   } else if (mode.value === 'area') {
     if (areaVerts.value.length > 0) {
@@ -148,12 +255,39 @@ function onClick(e: PointerEvent) {
 
   if (mode.value === 'line') {
     if (!lineStart) {
+      // Starting a new measurement — clear previous ephemeral guide/label
+      guideGfx.clear();
+      if (activeLabelContainer) {
+        labelLayer.removeChild(activeLabelContainer);
+        activeLabelContainer = null;
+      }
       lineStart = pt;
     } else {
-      guideGfx.setStrokeStyle({ pixelLine: true, color: 0xffaa00 });
-      guideGfx.moveTo(lineStart.x, lineStart.y).lineTo(pt.x, pt.y).stroke();
-      const distPx = euclideanPx(lineStart, pt);
-      updateLabel(formatFeet(pxToFeet(distPx, PX_PER_INCH, drawingScale.value)), midpoint(lineStart, pt));
+      const constrained = applyAngleConstraint(lineStart, pt);
+      const distPx = euclideanPx(lineStart, constrained);
+      const text = formatFeet(pxToFeet(distPx, PX_PER_INCH, drawingScale.value));
+
+      if (persistMode.value === 'sticky') {
+        const container = new Container();
+        const gfx = new Graphics();
+        drawDimLine(gfx, lineStart, constrained);
+        const lbl = makeLabelContainer(text);
+        positionLabel(lbl, lineStart, constrained);
+        container.addChild(gfx, lbl);
+        stickyLayer.addChild(container);
+        stickyMeasurements.push(container);
+      } else {
+        // Ephemeral: draw onto guideGfx (already has rubber-band) and keep activeLabelContainer
+        guideGfx.clear();
+        drawDimLine(guideGfx, lineStart, constrained);
+        if (activeLabelContainer) {
+          labelLayer.removeChild(activeLabelContainer);
+        }
+        activeLabelContainer = makeLabelContainer(text);
+        positionLabel(activeLabelContainer, lineStart, constrained);
+        labelLayer.addChild(activeLabelContainer);
+      }
+
       lineStart = null;
     }
   } else if (mode.value === 'area') {
@@ -175,6 +309,22 @@ function onClick(e: PointerEvent) {
   }
 }
 
+function clearSticky() {
+  for (const c of stickyMeasurements) stickyLayer.removeChild(c);
+  stickyMeasurements.length = 0;
+}
+
+const btnStyle = computed(() => (active: boolean) => ({
+  padding: '3px 10px',
+  background: active ? '#0070e0' : '#2a2a2a',
+  color: active ? '#fff' : '#888',
+  border: '1px solid #444',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontFamily: 'monospace',
+  fontSize: '11px',
+}));
+
 onMounted(async () => {
   const canvas = canvasEl.value!;
   app = markRaw(new Application());
@@ -194,23 +344,35 @@ onMounted(async () => {
     resolution: 2,
   });
 
-  pathLayer  = markRaw(new Container());
-  guideLayer = markRaw(new Container());
-  labelLayer = markRaw(new Container());
-  pathGfx    = markRaw(new Graphics());
-  fillGfx    = markRaw(new Graphics());
-  guideGfx   = markRaw(new Graphics());
-  labelText  = markRaw(new BitmapText({ text: '', style: { fontFamily: 'MeasureFont', fontSize: 14 } }));
+  pathLayer   = markRaw(new Container());
+  guideLayer  = markRaw(new Container());
+  labelLayer  = markRaw(new Container());
+  stickyLayer = markRaw(new Container());
+  pathGfx     = markRaw(new Graphics());
+  fillGfx     = markRaw(new Graphics());
+  guideGfx    = markRaw(new Graphics());
+  labelText   = markRaw(new BitmapText({ text: '', style: { fontFamily: 'MeasureFont', fontSize: 14 } }));
 
   pathLayer.addChild(pathGfx);
   guideLayer.addChild(fillGfx, guideGfx);
   labelLayer.addChild(labelText);
-  app.stage.addChild(pathLayer, guideLayer, labelLayer);
+  app.stage.addChild(pathLayer, guideLayer, stickyLayer, labelLayer);
 
   redrawBed(false);
 
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerdown', onClick);
+
+  onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    lineStart = null;
+    guideGfx.clear();
+    if (activeLabelContainer) {
+      labelLayer.removeChild(activeLabelContainer);
+      activeLabelContainer = null;
+    }
+  };
+  window.addEventListener('keydown', onKey);
 
   if (import.meta.env.DEV) {
     const { registerPixiBridge } = await import('pixi-bridge');
@@ -226,6 +388,7 @@ onUnmounted(() => {
   window.__pixiTestBridgeReady = false;
   canvasEl.value?.removeEventListener('pointermove', onMove);
   canvasEl.value?.removeEventListener('pointerdown', onClick);
+  if (onKey) window.removeEventListener('keydown', onKey);
   app?.destroy(true, { children: true, texture: true });
 });
 </script>
@@ -246,6 +409,42 @@ onUnmounted(() => {
                   color: mode===m ? '#fff' : '#888', border:'1px solid #444',
                   borderRadius:'3px', cursor:'pointer', fontFamily:'monospace', fontSize:'12px' }"
       >{{ m === 'line' ? 'Line Dist' : m === 'area' ? 'Area' : 'Path Length' }}</button>
+    </div>
+
+    <div v-if="mode === 'line'" style="position:absolute;top:46px;left:50%;transform:translateX(-50%);display:flex;gap:16px;align-items:center;font-family:monospace;font-size:11px;color:#888">
+      <!-- End caps -->
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="color:#555;margin-right:2px">caps</span>
+        <button v-for="opt in [['tick','Ticks'],['arrow','Arrows']]" :key="opt[0]"
+          @click="endCap = opt[0] as any"
+          :style="btnStyle(endCap === opt[0])">{{ opt[1] }}</button>
+      </div>
+      <!-- Mode -->
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="color:#555;margin-right:2px">mode</span>
+        <button v-for="opt in [['ephemeral','Ephemeral'],['sticky','Sticky']]" :key="opt[0]"
+          @click="persistMode = opt[0] as any"
+          :style="btnStyle(persistMode === opt[0])">{{ opt[1] }}</button>
+      </div>
+      <!-- Angle -->
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="color:#555;margin-right:2px">angle</span>
+        <button v-for="opt in [['free','Free'],['h','H'],['v','V'],['45','45°']]" :key="opt[0]"
+          @click="angleMode = opt[0] as any"
+          :style="btnStyle(angleMode === opt[0])">{{ opt[1] }}</button>
+      </div>
+      <!-- Label -->
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="color:#555;margin-right:2px">label</span>
+        <button v-for="opt in [['rotated','Rotated'],['horizontal','Horizontal']]" :key="opt[0]"
+          @click="labelStyle = opt[0] as any"
+          :style="btnStyle(labelStyle === opt[0])">{{ opt[1] }}</button>
+      </div>
+      <!-- Clear All (sticky only) -->
+      <button v-if="persistMode === 'sticky'" @click="clearSticky"
+        style="padding:3px 10px;background:#3a1a1a;color:#ff6666;border:1px solid #662222;border-radius:3px;cursor:pointer">
+        Clear All
+      </button>
     </div>
 
     <div style="position:absolute;bottom:10px;left:10px;font-family:monospace;font-size:11px;color:#888">

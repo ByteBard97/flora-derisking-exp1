@@ -15,10 +15,13 @@ const count = ref(1000);
 const useIndex = ref(true);
 const lastQueryMs = ref('—');
 const lastHitCount = ref(0);
+const lastClickWorld = ref('—');
+const lastClickHits = ref<number | null>(null);
 
 let app = markRaw({} as Application);
 let objectLayer = markRaw({} as Container);
 let marqueeGfx = markRaw({} as Graphics);
+let clickFxLayer = markRaw({} as Container);
 
 interface Rect { minX: number; minY: number; maxX: number; maxY: number; idx: number; }
 let items: Rect[] = [];
@@ -70,6 +73,7 @@ function buildScene(n: number) {
     objectLayer.addChild(g);
   }
   tree.load(items);
+  if (clickFxLayer) objectLayer.addChild(clickFxLayer);
   dirty = true;
 }
 
@@ -106,6 +110,34 @@ function drawMarquee() {
   marqueeGfx.rect(x, y, w, h).fill().stroke();
 }
 
+function spawnClickFx(worldX: number, worldY: number) {
+  const ring = new Graphics();
+  ring.setStrokeStyle({ width: 2, color: 0xff3355 });
+  ring.circle(0, 0, 4).stroke();
+  ring.position.set(worldX, worldY);
+  clickFxLayer.addChild(ring);
+  const t0 = performance.now();
+  const DURATION = 500;
+  const tick = () => {
+    const t = (performance.now() - t0) / DURATION;
+    if (t >= 1) {
+      ring.destroy();
+      app.ticker.remove(tick);
+      return;
+    }
+    ring.scale.set(1 + t * 4);
+    ring.alpha = 1 - t;
+  };
+  app.ticker.add(tick);
+}
+
+function pointPick(worldX: number, worldY: number): number {
+  const hits = useIndex.value
+    ? tree.search({ minX: worldX, minY: worldY, maxX: worldX, maxY: worldY })
+    : items.filter(it => it.minX <= worldX && it.maxX >= worldX && it.minY <= worldY && it.maxY >= worldY);
+  return hits.length;
+}
+
 function onPD(e: PointerEvent) {
   if (e.button === 1 || (e.button === 0 && e.altKey)) {
     isPanning = true;
@@ -113,8 +145,13 @@ function onPD(e: PointerEvent) {
     return;
   }
   if (e.button !== 0) return;
-  marqueeStart = screenToWorld(e.offsetX, e.offsetY);
+  const w = screenToWorld(e.offsetX, e.offsetY);
+  spawnClickFx(w.x, w.y);
+  lastClickWorld.value = `(${w.x.toFixed(1)}, ${w.y.toFixed(1)})`;
+  lastClickHits.value = pointPick(w.x, w.y);
+  marqueeStart = w;
   marqueeEnd = { ...marqueeStart };
+  runQuery({ minX: w.x, minY: w.y, maxX: w.x, maxY: w.y });
   (e.target as HTMLElement).setPointerCapture(e.pointerId);
 }
 
@@ -174,9 +211,11 @@ onMounted(async () => {
 
   objectLayer = markRaw(new Container());
   marqueeGfx = markRaw(new Graphics());
+  clickFxLayer = markRaw(new Container());
   app.stage.addChild(objectLayer, marqueeGfx);
 
   objectLayer.eventMode = 'none';
+  clickFxLayer.eventMode = 'none';
   app.stage.eventMode = 'static';
 
   camX = 20; camY = 20;
@@ -226,6 +265,10 @@ onUnmounted(() => {
       <div class="sep" />
       <div class="stat">Query: {{ lastQueryMs }}</div>
       <div class="stat">Hits: {{ lastHitCount }}</div>
+      <div class="sep" />
+      <div class="stat" :style="{ color: lastClickHits === 0 ? '#ff5566' : '#ffdd00' }">
+        Click: {{ lastClickWorld }}<span v-if="lastClickHits !== null"> → {{ lastClickHits }} hit{{ lastClickHits === 1 ? '' : 's' }}</span>
+      </div>
     </div>
     <div class="controls">
       <label>Count <input type="range" v-model.number="count" min="100" max="5000" step="100" style="width:90px" /> {{ count }}</label>

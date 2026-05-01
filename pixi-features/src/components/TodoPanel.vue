@@ -102,7 +102,7 @@ const DEFAULTS: Omit<TodoItem, 'id'>[] = [
     title: 'Tab: Measure',
     tabId: 'measure',
     body: 'Group: Interaction\n\nVerify:\n• Distance and area readouts appear\n• Values update live while dragging endpoints\n• Units are correct (inches / feet, as configured)',
-    done: false,
+    done: true,
   },
   {
     title: 'Tab: Selection',
@@ -126,7 +126,7 @@ const DEFAULTS: Omit<TodoItem, 'id'>[] = [
     title: 'Tab: Spatial Index',
     tabId: 'spatial',
     body: 'Group: Interaction\n\nVerify:\n• Hit-testing stays fast with many objects on screen\n• Selection picks the topmost item where things overlap\n• No false hits in empty space',
-    done: false,
+    done: true,
   },
   {
     title: 'Tab: Ants · Phase Math',
