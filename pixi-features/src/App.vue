@@ -16,6 +16,7 @@ const groups: Group[] = [
       { id: 'msdf',        label: 'MSDF Text',         comp: A('./tabs/TabMsdfText.vue') },
       { id: 'bitmap',      label: 'BitmapText',        comp: A('./tabs/TabBitmapText.vue') },
       { id: 'npr',         label: 'NPR Renderer',      comp: A('./tabs/TabNPRRenderer.vue') },
+      { id: 'style-play',  label: 'Plant Style Playground', comp: A('./tabs/TabPlantStylePlayground.vue') },
       { id: 'tree',        label: 'Tree Symbol',       comp: A('./tabs/TabTreeSymbol.vue') },
       { id: 'wind',        label: 'Wind Sway',         comp: A('./tabs/TabWindSway.vue') },
       { id: 'kuwahara',    label: 'Kuwahara Filter',   comp: A('./tabs/TabKuwahara.vue') },
