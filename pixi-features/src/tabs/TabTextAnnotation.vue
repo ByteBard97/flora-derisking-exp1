@@ -83,8 +83,16 @@ function addAnnotation(worldX: number, worldY: number, text: string): Annotation
       editText.value = ann.text;
       editScreenX.value = ann.worldX;
       editScreenY.value = ann.worldY;
+      ann.bitmapText.visible = false;
+      ann.hitArea.visible = false;
       editing.value = true;
-      nextTick(() => inputEl.value?.focus());
+      nextTick(() => {
+        const el = inputEl.value;
+        if (!el) return;
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      });
     }
     // If dist >= 8 it was a drag — draggingId is cleared by onWindowUp already
   });
@@ -105,6 +113,8 @@ function commitEdit() {
       annotations.splice(annotations.indexOf(ann), 1);
     } else {
       ann.text = text;
+      ann.bitmapText.visible = true;
+      ann.hitArea.visible = true;
       spawnBitmapText(ann);
     }
     editingId = null;
@@ -119,6 +129,10 @@ function commitEdit() {
 }
 
 function cancelEdit() {
+  if (editingId !== null) {
+    const ann = annotations.find(a => a.id === editingId);
+    if (ann) { ann.bitmapText.visible = true; ann.hitArea.visible = true; }
+  }
   editing.value = false;
   editText.value = '';
   editingId = null;
@@ -214,17 +228,19 @@ onUnmounted(() => {
       :style="{
         position: 'absolute',
         left: editScreenX + 'px',
-        top: (editScreenY - 20) + 'px',
-        background: 'rgba(0,0,0,0.7)',
-        border: '1px solid #0070e0',
+        top: editScreenY + 'px',
+        background: 'transparent',
+        border: 'none',
         color: '#fff',
         fontFamily: 'sans-serif',
         fontWeight: 'bold',
         fontSize: '16px',
-        padding: '2px 6px',
+        lineHeight: '1',
+        padding: '0',
+        margin: '0',
         outline: 'none',
-        minWidth: '80px',
-        borderRadius: '2px',
+        caretColor: 'currentColor',
+        minWidth: '20px',
         zIndex: '10',
       }"
       placeholder="Type annotation…"

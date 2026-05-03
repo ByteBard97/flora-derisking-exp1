@@ -132,19 +132,19 @@ const DEFAULTS: Omit<TodoItem, 'id'>[] = [
     title: 'Tab: Ants · Phase Math',
     tabId: 'ants',
     body: 'Group: Interaction\n\nVerify:\n• Marching ants animate around selection outline\n• Speed stays consistent across zoom levels\n• No flicker or direction reversals',
-    done: false,
+    done: true,
   },
   {
     title: 'Tab: Ants · TilingSprite',
     tabId: 'ants-tiling',
     body: 'Group: Interaction\n\nVerify:\n• Marching ants animate via TilingSprite path\n• Compare smoothness/quality against Phase Math implementation\n• Note which approach you prefer',
-    done: false,
+    done: true,
   },
   {
     title: 'Tab: Ants · Davidfig',
     tabId: 'ants-davidfig',
-    body: 'Group: Interaction\n\nVerify:\n• Third marching-ants implementation animates correctly\n• Compare against the other two — pick the cleanest for production\n• Record decision in ARCHITECTURE.md',
-    done: false,
+    body: 'Group: Interaction\n\nVerified — all three variations work; aesthetic polish (color/contrast match to flora-studio palette) deferred to design pass.\n\n• Third marching-ants implementation animates correctly\n• Compare against the other two — pick the cleanest for production\n• Record decision in ARCHITECTURE.md',
+    done: true,
   },
 
   // Text & UI
@@ -177,8 +177,8 @@ const DEFAULTS: Omit<TodoItem, 'id'>[] = [
   },
   {
     title: 'Freehand auto-smooth quality check',
-    body: 'TabFreehand now shows the green fitted bezier overlay on pointer-up.\n\nQuality bar: draw a simple S-curve or bed boundary. The green path should look like what Illustrator produces with the pencil tool.\n\nTune fitError (currently 4) if curves cut corners too much (try 2) or are too jagged (try 8).',
-    done: false,
+    body: 'Verified 2026-05-01: S-curve test produces Illustrator-pencil-quality output. fitError=4 locked in as the default. (Note: green-bezier overlay may not be rendering — separate cosmetic bug, doesn\'t affect smoothing quality.)',
+    done: true,
   },
   {
     title: 'Layer lock/visibility spike',

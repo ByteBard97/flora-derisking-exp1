@@ -14,6 +14,7 @@
 import { ref, onMounted, onUnmounted, markRaw } from 'vue';
 import { Application, Graphics, Container, Ticker } from 'pixi.js';
 import { useFps } from '../shared/useFps';
+import { drawTreeSymbol, SPECIES_COLORS, hashId } from '../lib/treeSymbol';
 
 const { fps, frameMs } = useFps();
 const canvasEl = ref<HTMLCanvasElement>();
@@ -21,11 +22,12 @@ const canvasEl = ref<HTMLCanvasElement>();
 let app = markRaw({} as Application);
 let objectLayer = markRaw({} as Container);
 let gizmoLayer = markRaw({} as Graphics);
-let shapeGfx = markRaw({} as Graphics);
+let plantContainer = markRaw({} as Container);
+let plantGfx = markRaw({} as Graphics);
 
 // Object state in world coords
 const obj = {
-  x: 300, y: 200, w: 180, h: 120,
+  x: 300, y: 200, w: 120, h: 120,
   scaleX: 1, scaleY: 1,
   rotation: 0,
 };
@@ -122,17 +124,10 @@ function drawGizmo() {
   gizmoLayer.circle(rots.x, rots.y, HANDLE_RADIUS).fill().stroke();
 }
 
-function drawShape() {
-  shapeGfx.clear();
-  const corners = getOBBCorners(obj);
-  const { tl, tr, br, bl } = corners;
-  shapeGfx.setFillStyle({ color: 0x1a3a5c, alpha: 0.8 });
-  shapeGfx.setStrokeStyle({ width: 1.5, color: 0x336699 });
-  shapeGfx.moveTo(tl.x, tl.y).lineTo(tr.x, tr.y).lineTo(br.x, br.y).lineTo(bl.x, bl.y).closePath().fill().stroke();
-
-  // Center dot
-  shapeGfx.setFillStyle({ color: 0x6699ff });
-  shapeGfx.circle(obj.x, obj.y, 3).fill();
+function applyPlantTransform() {
+  plantContainer.position.set(obj.x, obj.y);
+  plantContainer.scale.set(obj.scaleX, obj.scaleY);
+  plantContainer.rotation = obj.rotation;
 }
 
 function hitHandle(sx: number, sy: number): string | null {
@@ -274,7 +269,7 @@ function onTick() {
   objectLayer.position.set(camX, camY);
   objectLayer.scale.set(zoom);
 
-  drawShape();
+  applyPlantTransform();
   drawGizmo();
 }
 
@@ -298,10 +293,14 @@ onMounted(async () => {
   objectLayer.position.set(camX, camY);
   objectLayer.scale.set(zoom);
 
-  shapeGfx = markRaw(new Graphics());
+  plantGfx = markRaw(new Graphics());
+  drawTreeSymbol(plantGfx, 0, 0, 60, SPECIES_COLORS.oak, 'watercolor', hashId('gizmo-demo'));
+
+  plantContainer = markRaw(new Container());
+  plantContainer.addChild(plantGfx);
   gizmoLayer = markRaw(new Graphics());
 
-  objectLayer.addChild(shapeGfx);
+  objectLayer.addChild(plantContainer);
   app.stage.addChild(objectLayer, gizmoLayer);
 
   app.ticker.add(onTick);
