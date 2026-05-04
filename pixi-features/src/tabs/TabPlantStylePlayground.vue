@@ -11,12 +11,17 @@
  */
 
 import { ref, watch, onMounted, onUnmounted, markRaw } from 'vue'
-import { Application, Assets, Container, Texture } from 'pixi.js'
+import { Application, Assets, Container, Graphics, Texture, type FederatedPointerEvent } from 'pixi.js'
 import LoginPanel from '../components/LoginPanel.vue'
 import { isLoggedIn, refreshAuthState } from '../lib/floraApi'
 import { fetchPlantList, fetchPlantSvg, type PlantSummary } from '../lib/plantApi'
-import { extractSilhouette } from '../lib/silhouette'
-import { createPlantSymbol, DEFAULT_INKED_CLUSTER, DEFAULT_WATERCOLOR_FADED } from '../lib/plantSymbol'
+import { extractSilhouette, type Silhouette } from '../lib/silhouette'
+import {
+  createPlantSymbol,
+  defaultBloomAnchor,
+  DEFAULT_INKED_CLUSTER,
+  DEFAULT_WATERCOLOR_FADED,
+} from '../lib/plantSymbol'
 
 const PLANTS_TO_RENDER = 12
 const GRID_COLS = 4
@@ -41,24 +46,41 @@ const bloomColor = ref('#a07560')
 let app = markRaw({} as Application)
 let symbolsLayer = markRaw({} as Container)
 let initialized = false
-let primaryTexture: Texture | null = null
-let bloomTexture: Texture | null = null
+let paperTexture: Texture | null = null
 
-const PRIMARY_TEXTURE_URL = '/textures/watercolor/wash-green.png'
-const BLOOM_TEXTURE_URL = '/textures/watercolor/blooms-rose.png'
+// We reuse wash-green.png as a grayscale paper-grain source. Its luminance
+// has the right paper-fiber character and saves us shipping a dedicated asset.
+const PAPER_TEXTURE_URL = '/textures/watercolor/wash-green.png'
 
-async function loadWatercolorTextures(): Promise<{ primary: Texture; bloom: Texture }> {
-  if (primaryTexture && bloomTexture) {
-    return { primary: primaryTexture, bloom: bloomTexture }
-  }
-  const [primary, bloom] = await Promise.all([
-    Assets.load<Texture>(PRIMARY_TEXTURE_URL),
-    Assets.load<Texture>(BLOOM_TEXTURE_URL),
-  ])
-  primaryTexture = primary
-  bloomTexture = bloom
-  return { primary, bloom }
+async function loadPaperTexture(): Promise<Texture> {
+  if (paperTexture) return paperTexture
+  paperTexture = await Assets.load<Texture>(PAPER_TEXTURE_URL)
+  return paperTexture
 }
+
+// Bousseau β controls — paper grain, turbulent flow, edge darkening strengths.
+const betaPaper = ref(0.45)
+const betaFlow = ref(0.55)
+const betaEdge = ref(0.65)
+
+// Bloom (secondary color) shape params — global for now; click-drag UI later.
+const bloomRadius = ref(0.55)
+const bloomSoftness = ref(0.55)
+
+// Per-plant bloom anchor positioning — click a plant to select, drag inside
+// to move its bloom. Anchor is in 0..1 normalized coords inside the plant's
+// local sprite bounds. Plants without an entry use defaultBloomAnchor(seed).
+interface PlantEntry {
+  plant: PlantSummary
+  silhouette: Silhouette
+  gridIndex: number
+  container: Container
+}
+const symbolsByPlantId = markRaw(new Map<number, PlantEntry>())
+const anchorOverrides = ref(new Map<number, { x: number; y: number }>())
+const selectedPlantId = ref<number | null>(null)
+let isDragging = false
+let overlayGraphics = markRaw({} as Graphics)
 
 async function initPixi() {
   if (initialized || !canvasEl.value) return
@@ -75,6 +97,18 @@ async function initPixi() {
   symbolsLayer = new Container()
   symbolsLayer.label = 'test:symbols-layer'
   app.stage.addChild(symbolsLayer)
+  overlayGraphics = new Graphics()
+  overlayGraphics.eventMode = 'none'
+  symbolsLayer.addChild(overlayGraphics)
+
+  // Stage-level interactions for click-drag anchor positioning.
+  app.stage.eventMode = 'static'
+  app.stage.hitArea = app.screen
+  app.stage.on('pointerdown', onStagePointerDown)
+  app.stage.on('globalpointermove', onStageGlobalPointerMove)
+  app.stage.on('pointerup', onStagePointerUp)
+  app.stage.on('pointerupoutside', onStagePointerUp)
+
   initialized = true
 
   if (import.meta.env.DEV) {
@@ -95,7 +129,7 @@ async function initPixi() {
 async function loadAndRender() {
   if (!isLoggedIn.value) return
   await initPixi()
-  const { primary, bloom } = await loadWatercolorTextures()
+  const paper = await loadPaperTexture()
 
   status.value = 'Fetching plant list…'
   let allPlants: PlantSummary[] = []
@@ -111,6 +145,7 @@ async function loadAndRender() {
   status.value = `Rendering ${subset.length} plants…`
 
   symbolsLayer.removeChildren()
+  symbolsByPlantId.clear()
   vertexCounts.value = []
   const params =
     selectedPreset.value === 'inked-cluster' ? DEFAULT_INKED_CLUSTER : DEFAULT_WATERCOLOR_FADED
@@ -135,21 +170,50 @@ async function loadAndRender() {
     counts.push(r.silhouette.polygons.reduce((sum, p) => sum + p.length, 0))
     const fillColor = parseHexColor(primaryColor.value) ?? params.fillColor
     const bloomInt = parseHexColor(bloomColor.value)
+    const watercolor = params.watercolor
+      ? {
+          ...params.watercolor,
+          betaPaper: betaPaper.value,
+          betaFlow: betaFlow.value,
+          betaEdge: betaEdge.value,
+          bloomColor: bloomInt ?? params.watercolor.bloomColor,
+        }
+      : null
     const symbol = createPlantSymbol(r.silhouette, {
       ...params,
       displayRadius: SYMBOL_RADIUS,
       fillColor,
-      watercolor: params.watercolor && bloomInt !== null
-        ? { ...params.watercolor, bloomColor: bloomInt }
-        : params.watercolor,
+      watercolor,
+      bloomAnchor: anchorOverrides.value.get(r.plant.id) ?? null,
+      bloomRadius: bloomRadius.value,
+      bloomSoftness: bloomSoftness.value,
       seed: r.plant.id,
-    }, primary, bloom)
+    }, paper)
     symbol.label = `test:plant-${r.plant.id}`
+    symbol.eventMode = 'static'
+    symbol.cursor = 'pointer'
+    symbol.on('pointerdown', (event: FederatedPointerEvent) => {
+      onPlantPointerDown(r.plant.id, event)
+    })
     const col = i % GRID_COLS
     const row = Math.floor(i / GRID_COLS)
     symbol.position.set(col * CELL_SIZE + CELL_SIZE / 2, row * CELL_SIZE + CELL_SIZE / 2)
     symbolsLayer.addChild(symbol)
+    symbolsByPlantId.set(r.plant.id, {
+      plant: r.plant,
+      silhouette: r.silhouette,
+      gridIndex: i,
+      container: symbol,
+    })
   })
+
+  // Overlay (selection ring + anchor handle) lives on top of all symbols.
+  if (overlayGraphics.parent !== symbolsLayer) {
+    symbolsLayer.addChild(overlayGraphics)
+  } else {
+    symbolsLayer.setChildIndex(overlayGraphics, symbolsLayer.children.length - 1)
+  }
+  drawOverlay()
   vertexCounts.value = counts
   const elapsed = Math.round(performance.now() - t0)
   status.value = `Rendered ${counts.length}/${subset.length} plants in ${elapsed}ms`
@@ -159,6 +223,136 @@ function parseHexColor(hex: string | null): number | null {
   if (!hex) return null
   const m = /^#?([0-9a-f]{6})$/i.exec(hex)
   return m ? parseInt(m[1], 16) : null
+}
+
+/* ────────────────  Per-plant click-drag anchor positioning  ────────────── */
+
+function onPlantPointerDown(plantId: number, event: FederatedPointerEvent): void {
+  selectedPlantId.value = plantId
+  isDragging = true
+  updateAnchorFromGlobal(event.global.x, event.global.y)
+  event.stopPropagation()
+}
+
+function onStageGlobalPointerMove(event: FederatedPointerEvent): void {
+  if (!isDragging || selectedPlantId.value === null) return
+  updateAnchorFromGlobal(event.global.x, event.global.y)
+}
+
+function onStagePointerUp(): void {
+  if (isDragging) {
+    isDragging = false
+    drawOverlay()
+  }
+}
+
+function onStagePointerDown(): void {
+  // Click on empty stage area deselects (sprite handlers stopPropagation)
+  if (selectedPlantId.value !== null) {
+    selectedPlantId.value = null
+    drawOverlay()
+  }
+}
+
+function updateAnchorFromGlobal(gx: number, gy: number): void {
+  if (selectedPlantId.value === null) return
+  const entry = symbolsByPlantId.get(selectedPlantId.value)
+  if (!entry) return
+  const bounds = entry.container.getBounds()
+  const w = bounds.width || 1
+  const h = bounds.height || 1
+  const localX = clamp01((gx - bounds.x) / w)
+  const localY = clamp01((gy - bounds.y) / h)
+  anchorOverrides.value.set(selectedPlantId.value, { x: localX, y: localY })
+  scheduleRerenderSelected()
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+let rerenderPending = false
+function scheduleRerenderSelected(): void {
+  if (rerenderPending) return
+  rerenderPending = true
+  requestAnimationFrame(() => {
+    rerenderPending = false
+    rerenderSelected()
+  })
+}
+
+function rerenderSelected(): void {
+  if (selectedPlantId.value === null) return
+  const entry = symbolsByPlantId.get(selectedPlantId.value)
+  if (!entry || !paperTexture) return
+
+  const params =
+    selectedPreset.value === 'inked-cluster' ? DEFAULT_INKED_CLUSTER : DEFAULT_WATERCOLOR_FADED
+  const fillColor = parseHexColor(primaryColor.value) ?? params.fillColor
+  const bloomInt = parseHexColor(bloomColor.value)
+  const watercolor = params.watercolor
+    ? {
+        ...params.watercolor,
+        betaPaper: betaPaper.value,
+        betaFlow: betaFlow.value,
+        betaEdge: betaEdge.value,
+        bloomColor: bloomInt ?? params.watercolor.bloomColor,
+      }
+    : null
+
+  const newSymbol = createPlantSymbol(entry.silhouette, {
+    ...params,
+    displayRadius: SYMBOL_RADIUS,
+    fillColor,
+    watercolor,
+    bloomAnchor: anchorOverrides.value.get(entry.plant.id) ?? null,
+    bloomRadius: bloomRadius.value,
+    bloomSoftness: bloomSoftness.value,
+    seed: entry.plant.id,
+  }, paperTexture)
+  newSymbol.label = `test:plant-${entry.plant.id}`
+  newSymbol.eventMode = 'static'
+  newSymbol.cursor = 'pointer'
+  newSymbol.on('pointerdown', (event: FederatedPointerEvent) => {
+    onPlantPointerDown(entry.plant.id, event)
+  })
+  newSymbol.position.copyFrom(entry.container.position)
+
+  // Replace in scene graph and tracking map
+  const oldSymbol = entry.container
+  symbolsLayer.removeChild(oldSymbol)
+  oldSymbol.destroy({ children: true })
+  symbolsLayer.addChildAt(newSymbol, Math.max(0, symbolsLayer.children.length - 1))
+  entry.container = newSymbol
+  drawOverlay()
+}
+
+function drawOverlay(): void {
+  overlayGraphics.clear()
+  if (selectedPlantId.value === null) return
+  const entry = symbolsByPlantId.get(selectedPlantId.value)
+  if (!entry) return
+
+  const cx = entry.container.position.x
+  const cy = entry.container.position.y
+
+  // Selection ring around plant
+  overlayGraphics
+    .circle(cx, cy, SYMBOL_RADIUS + 8)
+    .stroke({ color: 0x6fdc6f, width: 2, alpha: 0.85 })
+
+  // Anchor handle dot
+  const anchor = anchorOverrides.value.get(entry.plant.id)
+    ?? defaultBloomAnchor(entry.plant.id)
+  // Anchor is in 0..1 of the sprite's bounding box. The sprite's anchor is
+  // 0.5 so its (0,0) is its visual center; bbox is centered at (cx, cy).
+  const bounds = entry.container.getBounds()
+  const handleX = bounds.x + anchor.x * bounds.width
+  const handleY = bounds.y + anchor.y * bounds.height
+  overlayGraphics
+    .circle(handleX, handleY, 6)
+    .fill({ color: 0xffffff, alpha: 0.85 })
+    .stroke({ color: 0x6fdc6f, width: 2 })
 }
 
 watch(isLoggedIn, async (loggedIn) => {
@@ -178,9 +372,22 @@ watch(selectedPreset, (preset) => {
   if (isLoggedIn.value) loadAndRender()
 })
 
-watch([primaryColor, bloomColor], () => {
-  if (isLoggedIn.value) loadAndRender()
-})
+watch([primaryColor, bloomColor, betaPaper, betaFlow, betaEdge, bloomRadius, bloomSoftness],
+  () => { if (isLoggedIn.value) scheduleRender() }
+)
+
+// rAF-throttled re-render: coalesce multiple slider events into a single
+// re-render per animation frame so dragging a slider doesn't queue work
+// faster than we can finish it.
+let renderPending = false
+function scheduleRender(): void {
+  if (renderPending) return
+  renderPending = true
+  requestAnimationFrame(() => {
+    renderPending = false
+    loadAndRender()
+  })
+}
 
 onMounted(async () => {
   // Re-sync auth state in case localStorage was set after page load
@@ -198,6 +405,10 @@ onUnmounted(() => {
     window.__pixiTestBridgeReady = false
   }
   if (initialized) {
+    app.stage.off('pointerdown', onStagePointerDown)
+    app.stage.off('globalpointermove', onStageGlobalPointerMove)
+    app.stage.off('pointerup', onStagePointerUp)
+    app.stage.off('pointerupoutside', onStagePointerUp)
     app.destroy(true, { children: true })
     initialized = false
   }
@@ -230,6 +441,29 @@ onUnmounted(() => {
       </label>
       <button class="reload" @click="loadAndRender">Reload</button>
       <span class="status">{{ status }}</span>
+    </div>
+
+    <div v-show="isLoggedIn" class="toolbar sliders">
+      <label class="slider-field">
+        β paper <span class="num">{{ betaPaper.toFixed(2) }}</span>
+        <input type="range" min="0" max="1" step="0.01" v-model.number="betaPaper" />
+      </label>
+      <label class="slider-field">
+        β flow <span class="num">{{ betaFlow.toFixed(2) }}</span>
+        <input type="range" min="0" max="1" step="0.01" v-model.number="betaFlow" />
+      </label>
+      <label class="slider-field">
+        β edge <span class="num">{{ betaEdge.toFixed(2) }}</span>
+        <input type="range" min="0" max="1" step="0.01" v-model.number="betaEdge" />
+      </label>
+      <label class="slider-field">
+        Bloom radius <span class="num">{{ bloomRadius.toFixed(2) }}</span>
+        <input type="range" min="0.2" max="1.5" step="0.01" v-model.number="bloomRadius" />
+      </label>
+      <label class="slider-field">
+        Bloom softness <span class="num">{{ bloomSoftness.toFixed(2) }}</span>
+        <input type="range" min="0.05" max="1.5" step="0.01" v-model.number="bloomSoftness" />
+      </label>
     </div>
 
     <!-- Canvas always mounted so Pixi + audit bridge live regardless of auth.
@@ -304,6 +538,28 @@ onUnmounted(() => {
   font-family: ui-monospace, monospace;
   font-size: 10px;
   color: #888;
+}
+.toolbar.sliders {
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 11px;
+}
+.toolbar .slider-field {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 130px;
+}
+.toolbar .slider-field input[type='range'] {
+  width: 130px;
+  margin: 0;
+  accent-color: #6fdc6f;
+}
+.toolbar .slider-field .num {
+  font-family: ui-monospace, monospace;
+  color: #888;
+  margin-left: 6px;
 }
 .toolbar .reload {
   background: #2a2a2a;

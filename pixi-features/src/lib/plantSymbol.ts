@@ -1,50 +1,47 @@
 /**
- * Plant symbol renderer — canvas pipeline (replaces shader-filter approach).
+ * Plant symbol renderer — Bousseau-style watercolor pipeline.
  *
- * Adapted from a sibling Claude Code prototype that solved several things
- * better than my GPU shader did:
+ * Replaces the earlier multiply+source-over approach with a unified
+ * "modify_color" pass that composes three contributions in HSL density
+ * space (paper texture × turbulent flow × edge darkening) before doing
+ * a single HSL round-trip per pixel — 3× cheaper than separate passes.
  *
- *   1. Two pigment textures sampled at *independent* offsets, composited via
- *      canvas `multiply` blend → primary pigment pools in one region, bloom
- *      pigment pools in *different* regions, and where they overlap the
- *      colors mix properly. This is the Wild Ones effect that single-texture
- *      density couldn't produce.
+ * Reference: Bousseau et al. 2006, "Interactive Watercolor Rendering with
+ * Temporal Coherence and Abstraction." See `thewatercolorist` GitHub repo
+ * for a working C++ port we mirrored.
  *
- *   2. Pigment-pass algorithm: convert grayscale density texture into colored
- *      pigment with density-weighted alpha, biased toward white at low
- *      density. Multiply-blending then darkens base toward the pigment color
- *      where the texture is dense and leaves base alone where it's white —
- *      saturated pooling instead of muddy averaging.
- *
- *   3. Edge darkening via blurred-alpha: blur the alpha channel, find pixels
- *      where blur > sharp (just inside the silhouette), darken those. Works
- *      on any irregular shape without per-axis tuning.
- *
- *   4. Render-once-to-canvas: each plant becomes a Sprite with a baked
- *      texture. Pan/zoom is free; only param changes trigger re-render.
+ * Pipeline:
+ *   1. drop shadow (blurred, offset)
+ *   2. solid primary fill across silhouette
+ *   3. bloom: SDF-shaped secondary fill at anchor (perturbed, soft edge)
+ *   4. ONE combined pass: density = 1 + βpaper*(paper-0.5)
+ *                                    + βflow*(flow-0.5)
+ *                                    + βedge*(edge-0.5)
+ *      Then HSL round-trip applying density to L (and S).
+ *   5. jittered outline drawn on top
+ *   6. canvas → Pixi Texture → Sprite
  */
 
 import { Container, Sprite, Texture } from 'pixi.js'
 import type { Silhouette, Vec2 } from './silhouette'
+import { seededNoise2D, fbm2d } from './perlinNoise'
+import { computeAlphaMaskedSobel } from './sobelGradient'
 
 /* ─────────────────────────────  PUBLIC API  ─────────────────────────────── */
 
-export interface WatercolorParams {
-  /** Multiply-blend strength of the primary pigment (typically darker base). */
-  primaryStrength: number
-  /** Multiply-blend strength of the bloom pigment. */
-  bloomStrength: number
-  /**
-   * Explicit bloom pigment color (e.g. 0xa07560 for dusty rose). Hue-rotating
-   * the base color isn't enough — going from green to pink needs ~120°, which
-   * clobbers the relationship with the base. Wild Ones plants use a fixed
-   * warm-rose secondary regardless of primary green.
-   */
+export interface BousseauParams {
+  /** Paper-texture grain strength (0..1, default 0.45). */
+  betaPaper: number
+  /** Turbulent flow / pigment patch strength (0..1, default 0.55). */
+  betaFlow: number
+  /** Edge darkening at color gradients (0..1, default 0.7). */
+  betaEdge: number
+  /** Octaves of FBM for the flow pass. */
+  flowOctaves: number
+  /** Base frequency of the flow noise (smaller = bigger patches). */
+  flowFrequency: number
+  /** Bloom secondary color. */
   bloomColor: number
-  /** Edge-darken strength (0..1). 0 disables. */
-  edgeDarkenStrength: number
-  /** Edge-darken blur radius as fraction of displayRadius (e.g. 0.04). */
-  edgeDarkenRadiusFactor: number
 }
 
 export interface PlantSymbolParams {
@@ -58,25 +55,35 @@ export interface PlantSymbolParams {
   shadowOffsetY: number
   shadowAlpha: number
   shadowColor: number
-  watercolor: WatercolorParams | null
-  /** Stable per-plant seed (typically plantId) for texture region selection. */
+  watercolor: BousseauParams | null
+  /** Stable per-plant seed (typically plantId) — drives bloom anchor + flow noise. */
   seed: number
+  /** Bloom anchor in 0..1 normalized canvas coords. If absent, derived from seed. */
+  bloomAnchor: { x: number; y: number } | null
+  /** Bloom radius as fraction of displayRadius. */
+  bloomRadius: number
+  /** Bloom edge softness (smoothstep range). */
+  bloomSoftness: number
+  /** SDF perturbation amplitude — gives organic cauliflower edges. */
+  bloomPerturbation: number
 }
 
-const WATERCOLOR_INKED: WatercolorParams = {
-  primaryStrength: 0.7,
-  bloomStrength: 0.85,
-  bloomColor: 0xa07560,           // muted rose-brown — Preston Montague restraint
-  edgeDarkenStrength: 0.55,
-  edgeDarkenRadiusFactor: 0.04,
+const WATERCOLOR_INKED: BousseauParams = {
+  betaPaper: 0.4,
+  betaFlow: 0.5,
+  betaEdge: 0.55,
+  flowOctaves: 5,
+  flowFrequency: 0.018,
+  bloomColor: 0xa07560,
 }
 
-const WATERCOLOR_FADED: WatercolorParams = {
-  primaryStrength: 0.85,
-  bloomStrength: 1.0,
-  bloomColor: 0xc88a72,           // warmer dusty rose — Wild Ones secondary
-  edgeDarkenStrength: 0.7,
-  edgeDarkenRadiusFactor: 0.05,
+const WATERCOLOR_FADED: BousseauParams = {
+  betaPaper: 0.5,
+  betaFlow: 0.7,
+  betaEdge: 0.7,
+  flowOctaves: 6,
+  flowFrequency: 0.014,
+  bloomColor: 0xc88a72,
 }
 
 export const DEFAULT_INKED_CLUSTER: Omit<PlantSymbolParams, 'seed'> = {
@@ -91,6 +98,10 @@ export const DEFAULT_INKED_CLUSTER: Omit<PlantSymbolParams, 'seed'> = {
   shadowAlpha: 0.25,
   shadowColor: 0x2a3340,
   watercolor: WATERCOLOR_INKED,
+  bloomAnchor: null,
+  bloomRadius: 0.55,
+  bloomSoftness: 0.5,
+  bloomPerturbation: 0.18,
 }
 
 export const DEFAULT_WATERCOLOR_FADED: Omit<PlantSymbolParams, 'seed'> = {
@@ -105,20 +116,30 @@ export const DEFAULT_WATERCOLOR_FADED: Omit<PlantSymbolParams, 'seed'> = {
   shadowAlpha: 0,
   shadowColor: 0x000000,
   watercolor: WATERCOLOR_FADED,
+  bloomAnchor: null,
+  bloomRadius: 0.55,
+  bloomSoftness: 0.55,
+  bloomPerturbation: 0.22,
+}
+
+export function defaultBloomAnchor(seed: number): { x: number; y: number } {
+  // Polar offset, magnitude 0.15..0.32 from center; angle from seed hash.
+  const a = hashFract(seed + 1) * Math.PI * 2
+  const r = 0.15 + hashFract((seed + 1) * 7) * 0.17
+  return { x: 0.5 + Math.cos(a) * r, y: 0.5 + Math.sin(a) * r }
 }
 
 export function createPlantSymbol(
   silhouette: Silhouette,
   params: PlantSymbolParams,
-  primaryTex: Texture,
-  bloomTex: Texture,
+  paperTex: Texture,
 ): Container {
   const radius = params.displayRadius
   const pad = Math.max(
     PAD_MIN,
     Math.abs(params.shadowOffsetX) + Math.abs(params.shadowOffsetY) + PAD_SHADOW_EXTRA,
   )
-  const canvasSize = Math.ceil((radius + pad) * 2)
+  const canvasSize = Math.min(MAX_CANVAS_SIZE, Math.ceil((radius + pad) * 2))
   const cx = canvasSize / 2
   const cy = canvasSize / 2
 
@@ -132,7 +153,7 @@ export function createPlantSymbol(
     centerOn(normalizeToRadius(poly, silhouette.rasterSize, radius), cx, cy),
   )
 
-  // ── 1. Drop shadow (blurred fill, offset)
+  // ── 1. Drop shadow ────────────────────────────────────────────────
   if (params.shadowAlpha > 0 && (params.shadowOffsetX !== 0 || params.shadowOffsetY !== 0)) {
     ctx.save()
     ctx.translate(params.shadowOffsetX, params.shadowOffsetY)
@@ -143,72 +164,31 @@ export function createPlantSymbol(
     ctx.restore()
   }
 
-  // ── 2. Solid base fill
+  // ── 2. Primary fill across silhouette ─────────────────────────────
   ctx.globalAlpha = params.fillAlpha
   ctx.fillStyle = hexFromInt(params.fillColor)
   fillPolygons(ctx, polygons)
   ctx.globalAlpha = 1
 
-  // ── 3. Two-pigment watercolor wash + edge darken
+  // ── 3. Bloom — SDF-shaped secondary fill at anchor ────────────────
   if (params.watercolor) {
-    const wc = params.watercolor
-
-    ctx.save()
-    pathPolygons(ctx, polygons)
-    ctx.clip()
-
-    // Primary pigment: multiply blend deepens base where the wash texture
-    // is dense — wet-on-wet pooling effect.
-    ctx.globalCompositeOperation = 'multiply'
-    const primarySrc = textureSourceImage(primaryTex)
-    if (primarySrc) {
-      paintPigmentPass(
-        ctx,
-        primarySrc,
-        darken(params.fillColor, PRIMARY_PIGMENT_DARKEN),
-        {
-          ...sampleOffset(params.seed, primarySrc, canvasSize),
-          scale: 1.0,
-          strength: wc.primaryStrength,
-          size: canvasSize,
-        },
-        'multiply',
-      )
-    }
-
-    // Bloom pigment: source-over with overlay-mode pixels lays a distinct
-    // SECOND color on top of the primary wash. Multiply alone would just
-    // give olive-brown mud (rose × green); we want visible rose patches.
-    ctx.globalCompositeOperation = 'source-over'
-    const bloomSrc = textureSourceImage(bloomTex)
-    if (bloomSrc) {
-      paintPigmentPass(
-        ctx,
-        bloomSrc,
-        wc.bloomColor,
-        {
-          ...sampleOffset(params.seed + BLOOM_SEED_OFFSET, bloomSrc, canvasSize),
-          scale: 1.1,
-          strength: wc.bloomStrength,
-          size: canvasSize,
-        },
-        'overlay',
-      )
-    }
-
-    ctx.restore()
-
-    if (wc.edgeDarkenStrength > 0) {
-      edgeDarkenInPlace(
-        canvas, ctx,
-        rgbFromInt(darken(params.fillColor, EDGE_DARKEN_TINT)),
-        wc.edgeDarkenStrength,
-        Math.max(EDGE_BLUR_MIN_PX, radius * wc.edgeDarkenRadiusFactor),
-      )
-    }
+    paintSdfBloom(
+      ctx, canvas, polygons,
+      params.bloomAnchor ?? defaultBloomAnchor(params.seed),
+      params.bloomRadius * radius,
+      params.bloomSoftness,
+      params.bloomPerturbation,
+      params.watercolor.bloomColor,
+      params.seed,
+    )
   }
 
-  // ── 4. Outline (jittered, drawn over wash so it stays crisp)
+  // ── 4. Combined Bousseau density pass (paper + flow + edge) ───────
+  if (params.watercolor) {
+    applyBousseauPass(ctx, canvas, paperTex, params.watercolor, params.seed)
+  }
+
+  // ── 5. Outline (drawn last, stays crisp) ──────────────────────────
   if (params.strokeWidth > 0) {
     const jittered = polygons.map(poly =>
       params.outlineJitterPx > 0 ? jitterAlongNormals(poly, params.outlineJitterPx) : poly,
@@ -230,17 +210,196 @@ export function createPlantSymbol(
   return container
 }
 
-/* ────────────────────────────  TUNING CONSTANTS  ────────────────────────── */
+/* ───────────────────────────  TUNING CONSTANTS  ─────────────────────────── */
 
 const PAD_MIN = 30
 const PAD_SHADOW_EXTRA = 14
+const MAX_CANVAS_SIZE = 512
 const SHADOW_BLUR_FACTOR = 0.06
-const PRIMARY_PIGMENT_DARKEN = 0.18      // primary pigment is base × (1 − this)
-const EDGE_DARKEN_TINT = 0.6             // dark color used at the silhouette edge
-const EDGE_BLUR_MIN_PX = 2
-const BLOOM_SEED_OFFSET = 31             // pigment passes sample different texture regions
-const PIGMENT_ALPHA_GAIN = 1.4           // pushes thin-pigment pixels into visibility
-const EDGE_DARKEN_GAIN = 1.6
+
+/* ───────────────────────────  BLOOM SDF FILL  ───────────────────────────── */
+
+/**
+ * Paints a soft, organically-edged blob of `bloomColor` centered at the
+ * anchor. SDF: `d = length(p - anchor) / radius + (fbm - 0.5) * perturbation`.
+ * Smoothstep on `d` gives the alpha envelope.
+ *
+ * Drawn `source-over` and clipped to the silhouette so the bloom never
+ * spills outside the plant.
+ */
+function paintSdfBloom(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  polygons: Vec2[][],
+  anchorNorm: { x: number; y: number },
+  radiusPx: number,
+  softness: number,
+  perturbation: number,
+  bloomColor: number,
+  seed: number,
+): void {
+  if (radiusPx <= 0 || softness <= 0) return
+
+  const w = canvas.width
+  const h = canvas.height
+  const ax = clamp01(anchorNorm.x) * w
+  const ay = clamp01(anchorNorm.y) * h
+
+  // Render bloom into a temp canvas so we can clip via context drawing
+  // without disturbing the existing image data.
+  const tmp = document.createElement('canvas')
+  tmp.width = w
+  tmp.height = h
+  const tctx = tmp.getContext('2d')
+  if (!tctx) return
+
+  const noise = seededNoise2D(seed + 1009)
+  const id = tctx.createImageData(w, h)
+  const d = id.data
+  const pig = rgbFromInt(bloomColor)
+  const fbmScale = 0.04
+  const softHi = softness // outer fade boundary
+  const softLo = Math.max(0, softness - 0.5) // inner full-alpha plateau
+
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const dx = (px - ax) / radiusPx
+      const dy = (py - ay) / radiusPx
+      const baseDist = Math.sqrt(dx * dx + dy * dy)
+      const noiseVal = fbm2d(noise, px * fbmScale, py * fbmScale, 3, 1, 0.5) - 0.5
+      const distance = baseDist + noiseVal * perturbation
+      // 1.0 inside, 0.0 outside, smoothstep transition between softLo and softHi
+      const alpha = 1 - smoothstep(1 - softHi, 1 + softLo, distance)
+      const ai = (py * w + px) * 4
+      d[ai]     = pig.r
+      d[ai + 1] = pig.g
+      d[ai + 2] = pig.b
+      d[ai + 3] = Math.round(alpha * 255)
+    }
+  }
+  tctx.putImageData(id, 0, 0)
+
+  // Composite bloom into main canvas, clipped to silhouette
+  ctx.save()
+  pathPolygons(ctx, polygons)
+  ctx.clip()
+  ctx.drawImage(tmp, 0, 0)
+  ctx.restore()
+}
+
+/* ───────────────────────  COMBINED BOUSSEAU PASS  ───────────────────────── */
+
+/**
+ * Single pixel-loop pass composing paper + flow + edge contributions in
+ * density space, then doing one HSL round-trip per pixel.
+ *
+ * density = 1 + βp*(paper - 0.5) + βf*(flow - 0.5) + βe*(edge - 0.5)
+ * lp = l * (1 - (1 - l) * (density - 1))   // applied to L (and S)
+ */
+function applyBousseauPass(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  paperTex: Texture,
+  params: BousseauParams,
+  seed: number,
+): void {
+  const w = canvas.width
+  const h = canvas.height
+  const image = ctx.getImageData(0, 0, w, h)
+  const data = image.data
+
+  // Sample the paper texture into a grayscale luminance map at canvas size.
+  const paperLuma = samplePaperLuma(paperTex, w, h, seed)
+
+  // Compute Sobel gradient over the current image (alpha-masked).
+  const sobelMag = computeAlphaMaskedSobel(image)
+
+  // Per-plant flow noise.
+  const flowNoise = seededNoise2D(seed + 4099)
+  const flowOct = params.flowOctaves
+  const flowFreq = params.flowFrequency
+
+  const bP = clamp01(params.betaPaper)
+  const bF = clamp01(params.betaFlow)
+  const bE = clamp01(params.betaEdge)
+
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const i = (py * w + px) * 4
+      if (data[i + 3] === 0) continue
+
+      // Paper grain: 0..1 luminance of paper sample (0.5 = neutral).
+      const paper = paperLuma[py * w + px] / 255
+
+      // Turbulent flow: 0..1 multi-octave Perlin. 0.5 = neutral.
+      const flow = fbm2d(flowNoise, px, py, flowOct, flowFreq, 0.5)
+
+      // Edge darkening: high gradient → high tex value → DARKENS.
+      // Remap so grad=0 → 0.5 (neutral), grad=1 → 1.0 (max darken).
+      const edge = (sobelMag[py * w + px] / 255) * 0.5 + 0.5
+
+      const density =
+        1
+        + bP * (paper - 0.5)
+        + bF * (flow - 0.5)
+        + bE * (edge - 0.5)
+
+      // HSL round-trip: modulate L (and slightly S) by density.
+      const r = data[i] / 255
+      const g = data[i + 1] / 255
+      const b = data[i + 2] / 255
+      const [h0, s0, l0] = rgbToHsl(r, g, b)
+      // Bousseau formula: Cp = C * (1 - (1 - C) * (density - 1))
+      const lp = clamp01(l0 * (1 - (1 - l0) * (density - 1)))
+      // Saturation gets a milder version of the same modulation.
+      const sp = clamp01(s0 * (1 - (1 - s0) * (density - 1) * SAT_DAMPING))
+      const [r2, g2, b2] = hslToRgb(h0, sp, lp)
+      data[i]     = Math.round(r2 * 255)
+      data[i + 1] = Math.round(g2 * 255)
+      data[i + 2] = Math.round(b2 * 255)
+    }
+  }
+  ctx.putImageData(image, 0, 0)
+}
+
+const SAT_DAMPING = 0.4
+
+/**
+ * Sample the paper texture into a w×h luminance map. Per-plant offset so
+ * different plants get different paper regions.
+ */
+function samplePaperLuma(paperTex: Texture, w: number, h: number, seed: number): Uint8Array {
+  const out = new Uint8Array(w * h)
+  const src = textureSourceImage(paperTex)
+  if (!src) {
+    // No paper bound — fill with neutral 0.5 so paper pass becomes a no-op.
+    out.fill(128)
+    return out
+  }
+
+  const tmp = document.createElement('canvas')
+  tmp.width = w
+  tmp.height = h
+  const tctx = tmp.getContext('2d')
+  if (!tctx) {
+    out.fill(128)
+    return out
+  }
+
+  const dim = src as unknown as { width?: number; height?: number }
+  const sw = dim.width ?? w
+  const sh = dim.height ?? h
+  const ox = Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * Math.max(0, sw - w))
+  const oy = Math.floor(((seed * 49297 + 9301) % 233280) / 233280 * Math.max(0, sh - h))
+  tctx.drawImage(src, ox, oy, w, h, 0, 0, w, h)
+
+  const id = tctx.getImageData(0, 0, w, h)
+  const d = id.data
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    out[j] = Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2])
+  }
+  return out
+}
 
 /* ──────────────────────────────  HELPERS  ───────────────────────────────── */
 
@@ -294,8 +453,18 @@ function smoothNoise(t: number): number {
 }
 
 function hashFract(n: number): number {
-  const x = Math.sin(n * 12.9898) * 43758.5453
+  const x = Math.sin(n * 12.9898 + 1.0) * 43758.5453
   return x - Math.floor(x)
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (edge1 === edge0) return x < edge0 ? 0 : 1
+  const t = clamp01((x - edge0) / (edge1 - edge0))
+  return t * t * (3 - 2 * t)
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v
 }
 
 function rgbFromInt(c: number): { r: number; g: number; b: number } {
@@ -306,137 +475,37 @@ function hexFromInt(c: number): string {
   return '#' + c.toString(16).padStart(6, '0')
 }
 
-function darken(color: number, amount: number): number {
-  const c = rgbFromInt(color)
-  const r = Math.round(c.r * (1 - amount))
-  const g = Math.round(c.g * (1 - amount))
-  const b = Math.round(c.b * (1 - amount))
-  return (r << 16) | (g << 8) | b
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+  else if (max === g) h = (b - r) / d + 2
+  else h = (r - g) / d + 4
+  return [h / 6, s, l]
 }
 
-interface PigmentOpts {
-  x: number
-  y: number
-  scale: number
-  strength: number
-  size: number
-}
-
-type PigmentMode = 'multiply' | 'overlay'
-
-/**
- * Composite one pigment pass.
- *
- * `mode = 'multiply'`: pixels biased toward WHITE at low density so a multiply
- * blend over base = "no change" in light regions and "darken toward pigment"
- * in dense regions. Use for the primary pigment (a darker variant of base) —
- * gives wet-on-wet pooling that deepens the existing wash.
- *
- * `mode = 'overlay'`: pixels are pure pigment color, alpha = density. Use
- * with `globalCompositeOperation = 'source-over'` to lay a SECOND distinct
- * color on top. This is how Wild Ones gets visible rose blooms over green —
- * multiply alone gives mud (rose × green ≈ olive); source-over of rose-with-
- * alpha shows real rose.
- *
- * The caller is responsible for setting the canvas globalCompositeOperation
- * and applying a clip path BEFORE calling this.
- */
-function paintPigmentPass(
-  targetCtx: CanvasRenderingContext2D,
-  source: CanvasImageSource,
-  pigmentColor: number,
-  opts: PigmentOpts,
-  mode: PigmentMode = 'multiply',
-): void {
-  const { x, y, scale, strength, size } = opts
-  const sample = document.createElement('canvas')
-  sample.width = size
-  sample.height = size
-  const sctx = sample.getContext('2d')
-  if (!sctx) return
-  sctx.drawImage(source, x, y, size / scale, size / scale, 0, 0, size, size)
-  const id = sctx.getImageData(0, 0, size, size)
-  const d = id.data
-  const pig = rgbFromInt(pigmentColor)
-  for (let i = 0; i < d.length; i += 4) {
-    // Luminance, not red channel. The rose bloom texture has high R (rose
-    // ink ~ R=180); using R alone caps bloom density at ~0.3 and the rose
-    // never reads. Luminance treats both green wash and rose bloom textures
-    // correctly: dark ink → low luma → high density regardless of hue.
-    const luma = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
-    const density = 1 - luma / 255
-    const a = Math.min(255, density * 255 * strength * PIGMENT_ALPHA_GAIN)
-    if (mode === 'multiply') {
-      const blend = density
-      d[i]     = pig.r * blend + 255 * (1 - blend)
-      d[i + 1] = pig.g * blend + 255 * (1 - blend)
-      d[i + 2] = pig.b * blend + 255 * (1 - blend)
-    } else {
-      d[i]     = pig.r
-      d[i + 1] = pig.g
-      d[i + 2] = pig.b
-    }
-    d[i + 3] = a
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) return [l, l, l]
+  const hue2rgb = (p: number, q: number, t: number): number => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
   }
-  sctx.putImageData(id, 0, 0)
-  targetCtx.drawImage(sample, 0, 0)
-}
-
-/**
- * Stamen / Bousseau edge-darken trick. Blur the canvas's alpha channel,
- * compare to the sharp alpha; pixels where blurred > sharp are inside the
- * edge band, darken proportionally toward the tint.
- */
-function edgeDarkenInPlace(
-  canvas: HTMLCanvasElement,
-  ctx: CanvasRenderingContext2D,
-  darkRgb: { r: number; g: number; b: number },
-  strength: number,
-  blurPx: number,
-): void {
-  const w = canvas.width
-  const h = canvas.height
-  const blurCanvas = document.createElement('canvas')
-  blurCanvas.width = w
-  blurCanvas.height = h
-  const bc = blurCanvas.getContext('2d')
-  if (!bc) return
-  bc.filter = `blur(${blurPx}px)`
-  bc.drawImage(canvas, 0, 0)
-  const blurred = bc.getImageData(0, 0, w, h).data
-  const fresh = ctx.getImageData(0, 0, w, h)
-  const fd = fresh.data
-  for (let i = 0; i < fd.length; i += 4) {
-    if (fd[i + 3] === 0) continue
-    const edge = Math.max(0, blurred[i + 3] - fd[i + 3]) / 255
-    const k = Math.min(1, edge * strength * EDGE_DARKEN_GAIN)
-    fd[i]     = fd[i]     * (1 - k) + darkRgb.r * k
-    fd[i + 1] = fd[i + 1] * (1 - k) + darkRgb.g * k
-    fd[i + 2] = fd[i + 2] * (1 - k) + darkRgb.b * k
-  }
-  ctx.putImageData(fresh, 0, 0)
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  return [hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3)]
 }
 
 function textureSourceImage(tex: Texture): CanvasImageSource | null {
-  // Pixi v8: TextureSource.resource is the underlying image/canvas/bitmap.
   const r = (tex.source as unknown as { resource?: unknown }).resource
-  if (!r) return null
-  // CanvasImageSource accepts HTMLImageElement, HTMLCanvasElement, ImageBitmap,
-  // HTMLVideoElement, OffscreenCanvas, SVGImageElement.
-  return r as CanvasImageSource
+  return r ? (r as CanvasImageSource) : null
 }
 
-function sampleOffset(
-  seed: number,
-  source: CanvasImageSource,
-  size: number,
-): { x: number; y: number } {
-  const dim = source as unknown as { width?: number; height?: number }
-  const sw = dim.width ?? 0
-  const sh = dim.height ?? 0
-  const maxX = Math.max(0, sw - size - 1)
-  const maxY = Math.max(0, sh - size - 1)
-  const hx = ((seed * 9301 + 49297) % 233280) / 233280
-  const hy = ((seed * 49297 + 9301) % 233280) / 233280
-  return { x: Math.floor(hx * maxX), y: Math.floor(hy * maxY) }
-}
