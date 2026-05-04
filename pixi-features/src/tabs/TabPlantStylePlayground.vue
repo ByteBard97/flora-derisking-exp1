@@ -11,7 +11,7 @@
  */
 
 import { ref, watch, onMounted, onUnmounted, markRaw } from 'vue'
-import { Application, Container } from 'pixi.js'
+import { Application, Assets, Container, Texture } from 'pixi.js'
 import LoginPanel from '../components/LoginPanel.vue'
 import { isLoggedIn, refreshAuthState } from '../lib/floraApi'
 import { fetchPlantList, fetchPlantSvg, type PlantSummary } from '../lib/plantApi'
@@ -22,7 +22,7 @@ const PLANTS_TO_RENDER = 12
 const GRID_COLS = 4
 const CELL_SIZE = 180
 const SYMBOL_RADIUS = 70
-const CANVAS_BG = 0x1a1a1a
+const CANVAS_BG = 0xf2ead4  // cream paper — matches landscape-architecture context
 
 type Preset = 'inked-cluster' | 'watercolor-faded'
 
@@ -32,9 +32,33 @@ const selectedPreset = ref<Preset>('inked-cluster')
 const plantsLoaded = ref<PlantSummary[]>([])
 const vertexCounts = ref<number[]>([])
 
+// Two-color watercolor controls. These override the per-plant plan_color
+// from the backend AND the preset's bloom — Annie picks the pair and all
+// plants render with it, so the canvas reads as one coordinated palette.
+const primaryColor = ref('#6b8e5a')
+const bloomColor = ref('#a07560')
+
 let app = markRaw({} as Application)
 let symbolsLayer = markRaw({} as Container)
 let initialized = false
+let primaryTexture: Texture | null = null
+let bloomTexture: Texture | null = null
+
+const PRIMARY_TEXTURE_URL = '/textures/watercolor/wash-green.png'
+const BLOOM_TEXTURE_URL = '/textures/watercolor/blooms-rose.png'
+
+async function loadWatercolorTextures(): Promise<{ primary: Texture; bloom: Texture }> {
+  if (primaryTexture && bloomTexture) {
+    return { primary: primaryTexture, bloom: bloomTexture }
+  }
+  const [primary, bloom] = await Promise.all([
+    Assets.load<Texture>(PRIMARY_TEXTURE_URL),
+    Assets.load<Texture>(BLOOM_TEXTURE_URL),
+  ])
+  primaryTexture = primary
+  bloomTexture = bloom
+  return { primary, bloom }
+}
 
 async function initPixi() {
   if (initialized || !canvasEl.value) return
@@ -71,6 +95,7 @@ async function initPixi() {
 async function loadAndRender() {
   if (!isLoggedIn.value) return
   await initPixi()
+  const { primary, bloom } = await loadWatercolorTextures()
 
   status.value = 'Fetching plant list…'
   let allPlants: PlantSummary[] = []
@@ -108,12 +133,17 @@ async function loadAndRender() {
   results.forEach((r, i) => {
     if (!r.silhouette) return
     counts.push(r.silhouette.polygons.reduce((sum, p) => sum + p.length, 0))
-    const fillColor = parseHexColor(r.plant.planColor) ?? params.fillColor
+    const fillColor = parseHexColor(primaryColor.value) ?? params.fillColor
+    const bloomInt = parseHexColor(bloomColor.value)
     const symbol = createPlantSymbol(r.silhouette, {
       ...params,
       displayRadius: SYMBOL_RADIUS,
       fillColor,
-    })
+      watercolor: params.watercolor && bloomInt !== null
+        ? { ...params.watercolor, bloomColor: bloomInt }
+        : params.watercolor,
+      seed: r.plant.id,
+    }, primary, bloom)
     symbol.label = `test:plant-${r.plant.id}`
     const col = i % GRID_COLS
     const row = Math.floor(i / GRID_COLS)
@@ -135,7 +165,20 @@ watch(isLoggedIn, async (loggedIn) => {
   if (loggedIn) await loadAndRender()
 })
 
-watch(selectedPreset, () => {
+watch(selectedPreset, (preset) => {
+  // Sync color pickers to preset defaults so flipping presets gives a
+  // visible palette change, not just texture-strength differences.
+  if (preset === 'inked-cluster') {
+    primaryColor.value = '#6b8e5a'
+    bloomColor.value = '#a07560'
+  } else {
+    primaryColor.value = '#8fa67a'
+    bloomColor.value = '#c88a72'
+  }
+  if (isLoggedIn.value) loadAndRender()
+})
+
+watch([primaryColor, bloomColor], () => {
   if (isLoggedIn.value) loadAndRender()
 })
 
@@ -174,6 +217,16 @@ onUnmounted(() => {
           <option value="inked-cluster">Inked Cluster (Preston Montague)</option>
           <option value="watercolor-faded">Watercolor Faded (Wild Ones)</option>
         </select>
+      </label>
+      <label class="color-field">
+        Primary
+        <input type="color" v-model="primaryColor" />
+        <span class="hex">{{ primaryColor }}</span>
+      </label>
+      <label class="color-field">
+        Bloom
+        <input type="color" v-model="bloomColor" />
+        <span class="hex">{{ bloomColor }}</span>
       </label>
       <button class="reload" @click="loadAndRender">Reload</button>
       <span class="status">{{ status }}</span>
@@ -232,6 +285,25 @@ onUnmounted(() => {
   padding: 4px 6px;
   border-radius: 3px;
   font-family: inherit;
+}
+.toolbar .color-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar .color-field input[type='color'] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #333;
+  border-radius: 3px;
+  background: #222;
+  cursor: pointer;
+}
+.toolbar .color-field .hex {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #888;
 }
 .toolbar .reload {
   background: #2a2a2a;
